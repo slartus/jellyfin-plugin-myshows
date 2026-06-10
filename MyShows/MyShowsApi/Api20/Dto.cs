@@ -87,13 +87,8 @@ namespace MyShows.MyShowsApi.Api20
 
     public class ManageSetMovieStatusArgs
     {
-        public int id { get; set; }
+        public int movieId { get; set; }
         public string status { get; set; }
-    }
-
-    public class ManageMovieArgs
-    {
-        public int id { get; set; }
     }
 
     public class ProfileMovieStatusesArgs

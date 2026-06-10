@@ -172,8 +172,8 @@ namespace MyShows.MyShowsApi.Api20
 
             var success = await Execute<bool>(user, "manage.SetMovieStatus", new ManageSetMovieStatusArgs
             {
-                id = movieId,
-                status = check ? "watched" : "remove"
+                movieId = movieId,
+                status = check ? "finished" : "remove"
             });
             return success;
         }
