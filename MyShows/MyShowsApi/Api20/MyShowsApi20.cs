@@ -223,9 +223,14 @@ namespace MyShows.MyShowsApi.Api20
                 method = method,
                 @params = args,
             };
-            var httpClient = GetHttpClient(user.AccessToken);
-            var content = new StringContent(JsonSerializer.Serialize(call, JsonDefaults.Options), Encoding.UTF8, "application/json");
-            var response = await httpClient.PostAsync(ApiConstants.RpcUri, content);
+            var httpClient = GetHttpClient();
+            var request = new HttpRequestMessage(HttpMethod.Post, ApiConstants.RpcUri)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(call, JsonDefaults.Options), Encoding.UTF8, "application/json"),
+            };
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            request.Headers.TryAddWithoutValidation("Authorization2", "Bearer " + user.AccessToken);
+            var response = await httpClient.SendAsync(request);
 
             var result = await Extensions.DeserializeFromHttp<JsonRpcResult<T>>(response);
             if (result.error != null)
