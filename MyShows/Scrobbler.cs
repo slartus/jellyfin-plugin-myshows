@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
@@ -79,17 +80,30 @@ namespace MyShows
             float percentageWatched = (float)e.Session.PlayState.PositionTicks / (float)e.Session.NowPlayingItem.RunTimeTicks * 100f;
             if (percentageWatched < user.ScrobbleAt) return;
 
-            if (e.Item is not Episode episode) return;
-            if (_lastScrobbled.Contains(episode.Id)) return;
+            if (_lastScrobbled.Contains(e.Item.Id)) return;
 
             try
             {
                 _logger.LogInformation("Item is played 90%. Scrobble");
 
-                var result = await _client.GetApi(user.ApiVersion).CheckEpisode(user, episode);
-                _logger.LogInformation("Checked episode '{0}' S{1}E{2} {3}", episode.Series.Name,
-                    episode.Season.IndexNumber, episode.IndexNumber, result ? "successfully" : "failed");
-                if (result) _lastScrobbled.Add(episode.Id);
+                switch (e.Item)
+                {
+                    case Episode episode:
+                    {
+                        var result = await _client.GetApi(user.ApiVersion).CheckEpisode(user, episode);
+                        _logger.LogInformation("Checked episode '{0}' S{1}E{2} {3}", episode.Series.Name,
+                            episode.Season.IndexNumber, episode.IndexNumber, result ? "successfully" : "failed");
+                        if (result) _lastScrobbled.Add(episode.Id);
+                        break;
+                    }
+                    case Movie movie:
+                    {
+                        var result = await _client.GetApi(user.ApiVersion).CheckMovie(user, movie);
+                        _logger.LogInformation("Checked movie '{0}' {1}", movie.Name, result ? "successfully" : "failed");
+                        if (result) _lastScrobbled.Add(movie.Id);
+                        break;
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -115,6 +129,24 @@ namespace MyShows
                 return;
             }
 
+            if (e.Item is Movie movie)
+            {
+                try
+                {
+                    var api = _client.GetApi(user.ApiVersion);
+                    var result = e.UserData.Played
+                        ? await api.CheckMovie(user, movie)
+                        : await api.UnCheckMovie(user, movie);
+                    _logger.LogInformation("Toggled movie '{0}' played={1} {2}",
+                        movie.Name, e.UserData.Played, result ? "successfully" : "failed");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error syncing movie watch state");
+                }
+                return;
+            }
+
             await _userDataHelper.AddEvent(user, e);
         }
 
@@ -126,9 +158,11 @@ namespace MyShows
 
             try
             {
-                if (e.Item is not Episode episode) return;
-                var result = await _client.GetApi(user.ApiVersion).SetShowStatusToWatching(user, episode.Series);
-                _logger.LogDebug("Started watching show '{0}' {1}", episode.Series.Name, result ? "successfully" : "failed");
+                if (e.Item is Episode episode)
+                {
+                    var result = await _client.GetApi(user.ApiVersion).SetShowStatusToWatching(user, episode.Series);
+                    _logger.LogDebug("Started watching show '{0}' {1}", episode.Series.Name, result ? "successfully" : "failed");
+                }
             }
             catch (Exception ex)
             {
@@ -145,17 +179,30 @@ namespace MyShows
 
             if (!e.PlayedToCompletion) return;
 
-            if (e.Item is not Episode episode) return;
-            if (_lastScrobbled.Contains(episode.Id)) return;
+            if (_lastScrobbled.Contains(e.Item.Id)) return;
 
             try
             {
                 _logger.LogInformation("Item is played. Scrobble");
 
-                var result = await _client.GetApi(user.ApiVersion).CheckEpisode(user, episode);
-                _logger.LogInformation("Checked episode '{0}' S{1}E{2} {3}", episode.Series.Name,
-                    episode.Season.IndexNumber, episode.IndexNumber, result ? "successfully" : "failed");
-                if (result) _lastScrobbled.Add(episode.Id);
+                switch (e.Item)
+                {
+                    case Episode episode:
+                    {
+                        var result = await _client.GetApi(user.ApiVersion).CheckEpisode(user, episode);
+                        _logger.LogInformation("Checked episode '{0}' S{1}E{2} {3}", episode.Series.Name,
+                            episode.Season.IndexNumber, episode.IndexNumber, result ? "successfully" : "failed");
+                        if (result) _lastScrobbled.Add(episode.Id);
+                        break;
+                    }
+                    case Movie movie:
+                    {
+                        var result = await _client.GetApi(user.ApiVersion).CheckMovie(user, movie);
+                        _logger.LogInformation("Checked movie '{0}' {1}", movie.Name, result ? "successfully" : "failed");
+                        if (result) _lastScrobbled.Add(movie.Id);
+                        break;
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -199,6 +246,11 @@ namespace MyShows
             {
                 var (_, source) = episode.Series.GetBestProviderId();
                 return source != null;
+            }
+
+            if (item is Movie movie)
+            {
+                return !string.IsNullOrEmpty(movie.GetTmdbId());
             }
 
             return false;

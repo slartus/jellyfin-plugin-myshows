@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Jellyfin.Extensions.Json;
 using MediaBrowser.Common.Net;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using Microsoft.Extensions.Logging;
 using MyShows.Configuration;
@@ -22,6 +23,8 @@ namespace MyShows.MyShowsApi.Api20
         private static readonly TimeSpan CACHED_SHOW_STORAGE_INTERVAL = TimeSpan.FromHours(24);
         private readonly ExpireableCache<string, ShowSummary> _showsCache = new();
         private readonly List<Guid> _lastWatchedShows = new();
+        private readonly ExpireableCache<string, int> _moviesCache = new();
+        private static readonly TimeSpan CACHED_MOVIE_STORAGE_INTERVAL = TimeSpan.FromHours(24);
 
         public MyShowsApi20(
             ILogger logger,
@@ -150,6 +153,58 @@ namespace MyShows.MyShowsApi.Api20
             _showsCache.Store(cacheKey, show, CACHED_SHOW_STORAGE_INTERVAL);
 
             return show;
+        }
+
+        public async Task<bool> CheckMovie(UserConfig user, Movie item)
+        {
+            return await ToggleMovie(user, item, true);
+        }
+
+        public async Task<bool> UnCheckMovie(UserConfig user, Movie item)
+        {
+            return await ToggleMovie(user, item, false);
+        }
+
+        private async Task<bool> ToggleMovie(UserConfig user, Movie item, bool check)
+        {
+            var movieId = await GetMovieId(user, item);
+            if (movieId <= 0) return false;
+
+            var success = await Execute<bool>(user, "manage.SetMovieStatus", new ManageSetMovieStatusArgs
+            {
+                id = movieId,
+                status = check ? "watched" : "remove"
+            });
+            return success;
+        }
+
+        protected async Task<int> GetMovieId(UserConfig user, Movie item)
+        {
+            var tmdbId = item.GetTmdbId();
+            if (string.IsNullOrEmpty(tmdbId))
+            {
+                _logger.LogWarning("No TMDb id for movie '{0}' — MyShows only matches movies by TMDb id", item.Name);
+                return 0;
+            }
+
+            var cacheKey = "tmdb:" + tmdbId;
+            var cached = _moviesCache.Get(cacheKey);
+            if (cached > 0) return cached;
+
+            var movieId = await Execute<int>(user, "movies.AddExternalMovie", new MoviesAddExternalMovieArgs
+            {
+                externalId = tmdbId,
+                source = "tmdb"
+            });
+
+            if (movieId <= 0)
+            {
+                _logger.LogWarning("MyShows did not return an id for TMDb={0} ('{1}')", tmdbId, item.Name);
+                return 0;
+            }
+
+            _moviesCache.Store(cacheKey, movieId, CACHED_MOVIE_STORAGE_INTERVAL);
+            return movieId;
         }
 
         private async Task<T> Execute<T>(UserConfig user, string method, object args)

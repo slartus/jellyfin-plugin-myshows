@@ -25,6 +25,12 @@ namespace MyShows
             return (-1, null);
         }
 
+        public static string GetTmdbId(this IHasProviderIds item)
+        {
+            var tmdb = item.GetProviderId(MetadataProvider.Tmdb);
+            return string.IsNullOrEmpty(tmdb) ? null : tmdb;
+        }
+
         public static async Task<T> DeserializeFromHttp<T>(HttpResponseMessage response)
         {
             var contentStream = await response.Content.ReadAsStreamAsync();

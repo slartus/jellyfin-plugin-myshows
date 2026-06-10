@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MyShows.Configuration;
 
@@ -11,5 +12,8 @@ namespace MyShows.MyShowsApi
         Task<bool> CheckEpisode(UserConfig user, Episode item);
         Task<bool> UnCheckEpisode(UserConfig user, Episode item);
         Task<bool> SyncEpisodes(UserConfig user, List<Episode> seen, List<Episode> unseen);
+
+        Task<bool> CheckMovie(UserConfig user, Movie item);
+        Task<bool> UnCheckMovie(UserConfig user, Movie item);
     }
 }

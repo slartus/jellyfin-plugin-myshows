@@ -78,4 +78,32 @@ namespace MyShows.MyShowsApi.Api20
         public int showId { get; set; }
         public string watchStatus { get; set; }
     }
+
+    public class MoviesAddExternalMovieArgs
+    {
+        public string externalId { get; set; }
+        public string source { get; set; }
+    }
+
+    public class ManageSetMovieStatusArgs
+    {
+        public int id { get; set; }
+        public string status { get; set; }
+    }
+
+    public class ManageMovieArgs
+    {
+        public int id { get; set; }
+    }
+
+    public class ProfileMovieStatusesArgs
+    {
+        public int[] movieIds { get; set; }
+    }
+
+    public class MovieStatus
+    {
+        public int movieId { get; set; }
+        public string watchStatus { get; set; }
+    }
 }
