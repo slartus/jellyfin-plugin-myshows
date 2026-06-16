@@ -38,6 +38,11 @@ namespace MyShows.Configuration
         public int ScrobbleAt { get; set; } = 90;
 
         /// <summary>
+        /// Opt-in: pull watched state from MyShows back into Jellyfin (via scheduled task).
+        /// </summary>
+        public bool PullWatchedFromMyShows { get; set; } = false;
+
+        /// <summary>
         /// Ensure OAuth access_token is vaild and refresh if it's not.
         /// </summary>
         /// <param name="

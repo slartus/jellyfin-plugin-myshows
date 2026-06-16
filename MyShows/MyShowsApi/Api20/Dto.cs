@@ -98,7 +98,18 @@ namespace MyShows.MyShowsApi.Api20
 
     public class MovieStatus
     {
-        public int movieId { get; set; }
+        public int id { get; set; }
         public string watchStatus { get; set; }
+    }
+
+    public class ProfileEpisodesArgs
+    {
+        public int showId { get; set; }
+    }
+
+    public class ProfileEpisode
+    {
+        public int id { get; set; }
+        public string watchDate { get; set; }
     }
 }

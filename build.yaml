@@ -1,9 +1,9 @@
 ---
 name: "MyShows"
 guid: "ef35f6b1-7fe6-44ca-a215-232089fb9bc7"
-version: "5.2.0.0"
-targetAbi: "10.9.0.0"
-framework: "net8.0"
+version: "5.3.0.0"
+targetAbi: "10.11.11.0"
+framework: "net9.0"
 overview: "Scrobble your watched shows and movies with MyShows.me"
 description: >
   Scrobble your watched shows and movies with MyShows.me.
@@ -12,4 +12,5 @@ owner: "slartus"
 artifacts:
   - "MyShows.dll"
 changelog: >
-  Add movie scrobbling via TMDb provider id. Switched API endpoint to v3.
+  Add scheduled task "MyShows -> Jellyfin: pull watched" that backfills played state in Jellyfin
+  from MyShows.me for users configured in the plugin.

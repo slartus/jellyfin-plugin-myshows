@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities.Movies;
@@ -15,5 +16,8 @@ namespace MyShows.MyShowsApi
 
         Task<bool> CheckMovie(UserConfig user, Movie item);
         Task<bool> UnCheckMovie(UserConfig user, Movie item);
+
+        Task<IReadOnlyDictionary<(int Season, int Episode), DateTimeOffset?>> GetWatchedEpisodes(UserConfig user, Series series);
+        Task<IReadOnlyDictionary<Guid, bool>> GetWatchedMovies(UserConfig user, IReadOnlyList<Movie> movies);
     }
 }
