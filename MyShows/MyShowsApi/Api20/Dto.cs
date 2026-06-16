@@ -132,5 +132,6 @@ namespace MyShows.MyShowsApi.Api20
         public string titleOriginal { get; set; }
         public string status { get; set; }
         public int? year { get; set; }
+        public int? totalSeasons { get; set; }
     }
 }

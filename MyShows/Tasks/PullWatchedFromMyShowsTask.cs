@@ -129,6 +129,7 @@ namespace MyShows.Tasks
                     Title = s.show.title,
                     TitleOriginal = s.show.titleOriginal,
                     Year = s.show.year,
+                    TotalSeasons = s.show.totalSeasons,
                     Status = s.show.status,
                     WatchStatus = s.watchStatus,
                     WatchedEpisodes = s.watchedEpisodes,

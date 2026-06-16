@@ -48,6 +48,41 @@ namespace MyShows.Api
             return Ok(new { items = episodes });
         }
 
+        [HttpGet("shows/recent")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public async Task<ActionResult> GetRecentShows(
+            [FromQuery] int limit = 15,
+            [FromQuery] string userId = null)
+        {
+            var targetUser = ResolveTargetUserId(userId);
+            if (targetUser == null) return Forbid();
+            if (limit <= 0 || limit > 100) limit = 15;
+
+            var store = JournalAccessor.TryOpen();
+            if (store == null) return NotFound(new { error = "Journal not initialised. Run pull-task first." });
+
+            var shows = await store.GetRecentShows(targetUser, limit);
+            return Ok(new { items = shows });
+        }
+
+        [HttpGet("movies")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public async Task<ActionResult> GetMovies(
+            [FromQuery] int limit = 30,
+            [FromQuery] bool onlyFinished = true,
+            [FromQuery] string userId = null)
+        {
+            var targetUser = ResolveTargetUserId(userId);
+            if (targetUser == null) return Forbid();
+            if (limit <= 0 || limit > 500) limit = 30;
+
+            var store = JournalAccessor.TryOpen();
+            if (store == null) return NotFound(new { error = "Journal not initialised. Run pull-task first." });
+
+            var movies = await store.GetMovies(targetUser, limit, onlyFinished);
+            return Ok(new { items = movies });
+        }
+
         private string ResolveTargetUserId(string requested)
         {
             var caller = CurrentUserId();

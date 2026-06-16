@@ -28,6 +28,7 @@ namespace MyShows.Journal
             using var cmd = conn.CreateCommand();
             cmd.CommandText = @"
 PRAGMA journal_mode=WAL;
+PRAGMA foreign_keys=OFF;
 
 CREATE TABLE IF NOT EXISTS myshows_shows (
     show_id           INTEGER NOT NULL,
@@ -35,6 +36,7 @@ CREATE TABLE IF NOT EXISTS myshows_shows (
     title             TEXT    NOT NULL,
     title_original    TEXT,
     year              INTEGER,
+    total_seasons     INTEGER,
     status            TEXT,
     watch_status      TEXT,
     watched_episodes  INTEGER NOT NULL DEFAULT 0,
@@ -75,6 +77,34 @@ CREATE INDEX IF NOT EXISTS idx_eps_user_watch
     ON myshows_episodes(jellyfin_user_id, watch_date DESC);
 ";
             cmd.ExecuteNonQuery();
+
+            using var migrate = conn.CreateCommand();
+            migrate.CommandText = "PRAGMA table_info(myshows_shows);";
+            var hasTotalSeasons = false;
+            using (var r = migrate.ExecuteReader())
+            {
+                while (r.Read())
+                {
+                    if (string.Equals(r.GetString(1), "total_seasons", StringComparison.OrdinalIgnoreCase))
+                    {
+                        hasTotalSeasons = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasTotalSeasons)
+            {
+                using var alter = conn.CreateCommand();
+                alter.CommandText = "ALTER TABLE myshows_shows ADD COLUMN total_seasons INTEGER;";
+                try
+                {
+                    alter.ExecuteNonQuery();
+                }
+                catch (Microsoft.Data.Sqlite.SqliteException)
+                {
+                    // racing with another instance or column already exists
+                }
+            }
         }
 
         public async Task UpsertShows(string userId, IReadOnlyList<JournalShow> shows)
@@ -86,14 +116,15 @@ CREATE INDEX IF NOT EXISTS idx_eps_user_watch
             await using var cmd = conn.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = @"
-INSERT INTO myshows_shows (show_id, jellyfin_user_id, title, title_original, year, status,
-                            watch_status, watched_episodes, total_episodes, rating, last_synced_at)
-VALUES ($show_id, $user, $title, $title_original, $year, $status,
-        $watch_status, $we, $te, $rating, $now)
+INSERT INTO myshows_shows (show_id, jellyfin_user_id, title, title_original, year, total_seasons,
+                            status, watch_status, watched_episodes, total_episodes, rating, last_synced_at)
+VALUES ($show_id, $user, $title, $title_original, $year, $total_seasons,
+        $status, $watch_status, $we, $te, $rating, $now)
 ON CONFLICT(show_id, jellyfin_user_id) DO UPDATE SET
     title            = excluded.title,
     title_original   = excluded.title_original,
     year             = excluded.year,
+    total_seasons    = excluded.total_seasons,
     status           = excluded.status,
     watch_status     = excluded.watch_status,
     watched_episodes = excluded.watched_episodes,
@@ -106,6 +137,7 @@ ON CONFLICT(show_id, jellyfin_user_id) DO UPDATE SET
             var pTitle = cmd.CreateParameter(); pTitle.ParameterName = "$title"; cmd.Parameters.Add(pTitle);
             var pTitleOrig = cmd.CreateParameter(); pTitleOrig.ParameterName = "$title_original"; cmd.Parameters.Add(pTitleOrig);
             var pYear = cmd.CreateParameter(); pYear.ParameterName = "$year"; cmd.Parameters.Add(pYear);
+            var pTotalSeasons = cmd.CreateParameter(); pTotalSeasons.ParameterName = "$total_seasons"; cmd.Parameters.Add(pTotalSeasons);
             var pStatus = cmd.CreateParameter(); pStatus.ParameterName = "$status"; cmd.Parameters.Add(pStatus);
             var pWatchStatus = cmd.CreateParameter(); pWatchStatus.ParameterName = "$watch_status"; cmd.Parameters.Add(pWatchStatus);
             var pWe = cmd.CreateParameter(); pWe.ParameterName = "$we"; cmd.Parameters.Add(pWe);
@@ -121,6 +153,7 @@ ON CONFLICT(show_id, jellyfin_user_id) DO UPDATE SET
                 pTitle.Value = s.Title ?? string.Empty;
                 pTitleOrig.Value = (object)s.TitleOriginal ?? DBNull.Value;
                 pYear.Value = (object)s.Year ?? DBNull.Value;
+                pTotalSeasons.Value = (object)s.TotalSeasons ?? DBNull.Value;
                 pStatus.Value = (object)s.Status ?? DBNull.Value;
                 pWatchStatus.Value = (object)s.WatchStatus ?? DBNull.Value;
                 pWe.Value = s.WatchedEpisodes;
@@ -320,6 +353,83 @@ WHERE jellyfin_user_id = $user AND show_id = $show;";
                     when = dt;
                 }
                 result[key] = when;
+            }
+            return result;
+        }
+
+        public async Task<IReadOnlyList<RecentShow>> GetRecentShows(string userId, int limit)
+        {
+            var result = new List<RecentShow>(limit);
+            await using var conn = Open();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+WITH latest AS (
+    SELECT show_id,
+           season_number,
+           episode_number,
+           watch_date,
+           ROW_NUMBER() OVER (PARTITION BY show_id ORDER BY watch_date DESC) AS rn
+    FROM myshows_episodes
+    WHERE jellyfin_user_id = $user AND watch_date IS NOT NULL
+)
+SELECT s.show_id, s.title, s.title_original, s.year, s.total_seasons, s.watch_status,
+       s.watched_episodes, s.total_episodes,
+       l.season_number, l.episode_number, l.watch_date
+FROM myshows_shows s
+JOIN latest l ON l.show_id = s.show_id AND l.rn = 1
+WHERE s.jellyfin_user_id = $user
+ORDER BY l.watch_date DESC
+LIMIT $limit;";
+            cmd.Parameters.AddWithValue("$user", userId);
+            cmd.Parameters.AddWithValue("$limit", limit);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+            {
+                result.Add(new RecentShow
+                {
+                    ShowId = r.GetInt32(0),
+                    Title = r.IsDBNull(1) ? "?" : r.GetString(1),
+                    TitleOriginal = r.IsDBNull(2) ? null : r.GetString(2),
+                    Year = r.IsDBNull(3) ? (int?)null : r.GetInt32(3),
+                    TotalSeasons = r.IsDBNull(4) ? (int?)null : r.GetInt32(4),
+                    WatchStatus = r.IsDBNull(5) ? null : r.GetString(5),
+                    WatchedEpisodes = r.GetInt32(6),
+                    TotalEpisodes = r.GetInt32(7),
+                    LastSeason = r.IsDBNull(8) ? (int?)null : r.GetInt32(8),
+                    LastEpisode = r.IsDBNull(9) ? (int?)null : r.GetInt32(9),
+                    LastWatchDate = r.IsDBNull(10) ? null : r.GetString(10),
+                });
+            }
+            return result;
+        }
+
+        public async Task<IReadOnlyList<JournaledMovie>> GetMovies(string userId, int limit, bool onlyFinished)
+        {
+            var result = new List<JournaledMovie>(limit);
+            await using var conn = Open();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+SELECT movie_id, tmdb_id, title, watch_status, watch_date, last_synced_at
+FROM myshows_movies
+WHERE jellyfin_user_id = $user
+  AND ($all = 1 OR watch_status = 'finished')
+ORDER BY COALESCE(watch_date, '') DESC, last_synced_at DESC
+LIMIT $limit;";
+            cmd.Parameters.AddWithValue("$user", userId);
+            cmd.Parameters.AddWithValue("$all", onlyFinished ? 0 : 1);
+            cmd.Parameters.AddWithValue("$limit", limit);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+            {
+                result.Add(new JournaledMovie
+                {
+                    MovieId = r.GetInt32(0),
+                    TmdbId = r.IsDBNull(1) ? null : r.GetString(1),
+                    Title = r.IsDBNull(2) ? null : r.GetString(2),
+                    WatchStatus = r.IsDBNull(3) ? null : r.GetString(3),
+                    WatchDate = r.IsDBNull(4) ? null : r.GetString(4),
+                    LastSyncedAtUnix = r.GetInt64(5),
+                });
             }
             return result;
         }

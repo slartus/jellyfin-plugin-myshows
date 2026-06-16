@@ -9,6 +9,7 @@ namespace MyShows.Journal
         public string Title { get; set; }
         public string TitleOriginal { get; set; }
         public int? Year { get; set; }
+        public int? TotalSeasons { get; set; }
         public string Status { get; set; }
         public string WatchStatus { get; set; }
         public int WatchedEpisodes { get; set; }
@@ -67,5 +68,30 @@ namespace MyShows.Journal
         public int SeasonNumber { get; set; }
         public int EpisodeNumber { get; set; }
         public string WatchDate { get; set; }
+    }
+
+    public class RecentShow
+    {
+        public int ShowId { get; set; }
+        public string Title { get; set; }
+        public string TitleOriginal { get; set; }
+        public int? Year { get; set; }
+        public int? TotalSeasons { get; set; }
+        public string WatchStatus { get; set; }
+        public int WatchedEpisodes { get; set; }
+        public int TotalEpisodes { get; set; }
+        public int? LastSeason { get; set; }
+        public int? LastEpisode { get; set; }
+        public string LastWatchDate { get; set; }
+    }
+
+    public class JournaledMovie
+    {
+        public int MovieId { get; set; }
+        public string TmdbId { get; set; }
+        public string Title { get; set; }
+        public string WatchStatus { get; set; }
+        public string WatchDate { get; set; }
+        public long LastSyncedAtUnix { get; set; }
     }
 }
