@@ -152,6 +152,7 @@ namespace MyShows.MyShowsApi.Api20
             });
 
             _showsCache.Store(cacheKey, show, CACHED_SHOW_STORAGE_INTERVAL);
+            _showsCache.Store("internal:" + show.id, show, CACHED_SHOW_STORAGE_INTERVAL);
 
             return show;
         }
@@ -208,35 +209,10 @@ namespace MyShows.MyShowsApi.Api20
             return movieId;
         }
 
-        public async Task<IReadOnlyDictionary<(int Season, int Episode), DateTimeOffset?>> GetWatchedEpisodes(UserConfig user, Series series)
+        public async Task<int> ResolveMyShowsShowId(UserConfig user, Series series)
         {
             var show = await GetShow(user, series);
-            if (show == default(ShowSummary) || show.episodes == null) return new Dictionary<(int, int), DateTimeOffset?>();
-
-            var byId = show.episodes
-                .GroupBy(e => e.id)
-                .ToDictionary(g => g.Key, g => g.First());
-
-            var profileEpisodes = await Execute<ProfileEpisode[]>(user, "profile.Episodes", new ProfileEpisodesArgs
-            {
-                showId = show.id,
-            });
-            if (profileEpisodes == null) return new Dictionary<(int, int), DateTimeOffset?>();
-
-            var result = new Dictionary<(int Season, int Episode), DateTimeOffset?>();
-            foreach (var pe in profileEpisodes)
-            {
-                if (!byId.TryGetValue(pe.id, out var summary)) continue;
-                var key = (summary.seasonNumber, summary.episodeNumber);
-                DateTimeOffset? when = null;
-                if (!string.IsNullOrEmpty(pe.watchDate)
-                    && DateTimeOffset.TryParse(pe.watchDate, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
-                {
-                    when = parsed;
-                }
-                result[key] = when;
-            }
-            return result;
+            return show?.id ?? 0;
         }
 
         public async Task<IReadOnlyDictionary<Guid, bool>> GetWatchedMovies(UserConfig user, IReadOnlyList<Movie> movies)
@@ -265,6 +241,51 @@ namespace MyShows.MyShowsApi.Api20
                 result[jellyfinId] = string.Equals(status.watchStatus, "finished", StringComparison.OrdinalIgnoreCase);
             }
             return result;
+        }
+
+        public async Task<IReadOnlyList<ProfileShowSummary>> GetProfileShows(UserConfig user)
+        {
+            var shows = await Execute<ProfileShowSummary[]>(user, "profile.Shows", new { });
+            return shows ?? Array.Empty<ProfileShowSummary>();
+        }
+
+        public async Task<IReadOnlyList<ProfileEpisode>> GetEpisodesByShowId(UserConfig user, int showId)
+        {
+            var episodes = await Execute<ProfileEpisode[]>(user, "profile.Episodes", new ProfileEpisodesArgs
+            {
+                showId = showId,
+            });
+            return episodes ?? Array.Empty<ProfileEpisode>();
+        }
+
+        public Task<int> GetMyShowsMovieId(UserConfig user, Movie movie) => GetMovieId(user, movie);
+
+        public async Task<IReadOnlyList<MovieStatus>> GetMovieStatusesByIds(UserConfig user, IReadOnlyList<int> movieIds)
+        {
+            if (movieIds == null || movieIds.Count == 0) return Array.Empty<MovieStatus>();
+            var statuses = await Execute<MovieStatus[]>(user, "profile.MovieStatuses", new ProfileMovieStatusesArgs
+            {
+                movieIds = movieIds.ToArray(),
+            });
+            return statuses ?? Array.Empty<MovieStatus>();
+        }
+
+        public async Task<ShowSummary> GetShowWithEpisodesById(UserConfig user, int showId)
+        {
+            var cacheKey = "internal:" + showId;
+            var cached = _showsCache.Get(cacheKey);
+            if (cached != default(ShowSummary)) return cached;
+
+            var show = await Execute<ShowSummary>(user, "shows.GetById", new ShowsGetByIdArgs
+            {
+                showId = showId,
+                withEpisodes = true,
+            });
+            if (show != default(ShowSummary))
+            {
+                _showsCache.Store(cacheKey, show, CACHED_SHOW_STORAGE_INTERVAL);
+            }
+            return show;
         }
 
         private async Task<T> Execute<T>(UserConfig user, string method, object args)

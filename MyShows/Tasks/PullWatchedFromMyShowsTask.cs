@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
@@ -12,7 +14,9 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 using MyShows.Configuration;
+using MyShows.Journal;
 using MyShows.MyShowsApi;
+using MyShows.MyShowsApi.Api20;
 
 namespace MyShows.Tasks
 {
@@ -90,16 +94,117 @@ namespace MyShows.Tasks
 
             _logger.LogInformation("Pulling watched state for user {0}", jellyfinUser.Username);
             var api = _apiFactory.GetApi(uc.ApiVersion);
+            var journal = OpenJournal();
 
             var userOffset = (double)userIndex / userCount * 100.0;
             var userSlot = 100.0 / userCount;
 
-            await PullEpisodes(api, uc, jellyfinUser, progress, userOffset, userSlot * 0.7, ct);
-            await PullMovies(api, uc, jellyfinUser, progress, userOffset + userSlot * 0.7, userSlot * 0.3, ct);
+            await SyncJournal(api, uc, journal, progress, userOffset, userSlot * 0.5, ct);
+            await PullEpisodes(api, uc, jellyfinUser, journal, progress, userOffset + userSlot * 0.5, userSlot * 0.35, ct);
+            await PullMovies(api, uc, jellyfinUser, journal, progress, userOffset + userSlot * 0.85, userSlot * 0.15, ct);
+        }
+
+        private JournalStore OpenJournal() => JournalAccessor.Open();
+
+        private async Task SyncJournal(IMyShowsApi api, UserConfig uc, JournalStore journal,
+            IProgress<double> progress, double slotStart, double slotSize, CancellationToken ct)
+        {
+            IReadOnlyList<ProfileShowSummary> profileShows;
+            try
+            {
+                profileShows = await api.GetProfileShows(uc);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Journal: failed to fetch profile.Shows for {0}", uc.Name);
+                progress?.Report(slotStart + slotSize);
+                return;
+            }
+
+            var journalShows = profileShows
+                .Where(s => s.show != null)
+                .Select(s => new JournalShow
+                {
+                    ShowId = s.show.id,
+                    Title = s.show.title,
+                    TitleOriginal = s.show.titleOriginal,
+                    Year = s.show.year,
+                    Status = s.show.status,
+                    WatchStatus = s.watchStatus,
+                    WatchedEpisodes = s.watchedEpisodes,
+                    TotalEpisodes = s.totalEpisodes,
+                    Rating = s.rating,
+                })
+                .ToList();
+
+            await journal.UpsertShows(uc.Id, journalShows);
+            _logger.LogInformation("Journal: stored {0} shows for {1}", journalShows.Count, uc.Name);
+
+            var withEpisodes = profileShows.Where(s => s.show != null && s.watchedEpisodes > 0).ToList();
+            for (var i = 0; i < withEpisodes.Count; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var s = withEpisodes[i];
+                IReadOnlyList<ProfileEpisode> episodes;
+                try
+                {
+                    episodes = await api.GetEpisodesByShowId(uc, s.show.id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Journal: failed to fetch episodes for show {0} ({1})", s.show.id, s.show.title);
+                    continue;
+                }
+
+                var seByEpisodeId = new Dictionary<int, (int Season, int Episode)>();
+                try
+                {
+                    var full = await api.GetShowWithEpisodesById(uc, s.show.id);
+                    if (full?.episodes != null)
+                    {
+                        foreach (var fe in full.episodes)
+                        {
+                            seByEpisodeId[fe.id] = (fe.seasonNumber, fe.episodeNumber);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Journal: failed to fetch full show {0} ({1}) for S/E mapping", s.show.id, s.show.title);
+                }
+
+                var journalEpisodes = episodes
+                    .Where(e => seByEpisodeId.ContainsKey(e.id))
+                    .Select(e => new JournalEpisode
+                    {
+                        EpisodeId = e.id,
+                        ShowId = s.show.id,
+                        SeasonNumber = seByEpisodeId[e.id].Season,
+                        EpisodeNumber = seByEpisodeId[e.id].Episode,
+                        WatchDate = ParseWatchDate(e.watchDate),
+                        Rating = e.rating,
+                        IsFavorite = e.isFavorite,
+                    })
+                    .ToList();
+
+                await journal.UpsertEpisodes(uc.Id, s.show.id, journalEpisodes);
+                progress?.Report(slotStart + slotSize * ((double)(i + 1) / withEpisodes.Count));
+            }
+
+            _logger.LogInformation("Journal: synced episodes for {0} shows of {1}", withEpisodes.Count, uc.Name);
+            progress?.Report(slotStart + slotSize);
+        }
+
+        private static DateTimeOffset? ParseWatchDate(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return null;
+            return DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var dt)
+                ? dt
+                : (DateTimeOffset?)null;
         }
 
         private async Task PullEpisodes(IMyShowsApi api, UserConfig uc, Jellyfin.Database.Implementations.Entities.User user,
-            IProgress<double> progress, double slotStart, double slotSize, CancellationToken ct)
+            JournalStore journal, IProgress<double> progress, double slotStart, double slotSize, CancellationToken ct)
         {
             var episodes = _libraryManager.GetItemList(new InternalItemsQuery(user)
             {
@@ -122,17 +227,19 @@ namespace MyShows.Tasks
                 var group = bySeries[i];
                 var series = group.First().Series;
 
-                IReadOnlyDictionary<(int Season, int Episode), DateTimeOffset?> watched;
+                int msShowId;
                 try
                 {
-                    watched = await api.GetWatchedEpisodes(uc, series);
+                    msShowId = await api.ResolveMyShowsShowId(uc, series);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to fetch watched episodes for '{0}'", series.Name);
+                    _logger.LogError(ex, "Failed to resolve MyShows id for series '{0}'", series.Name);
                     continue;
                 }
+                if (msShowId <= 0) continue;
 
+                var watched = await journal.GetWatchedEpisodesForShow(uc.Id, msShowId);
                 if (watched.Count == 0) continue;
 
                 foreach (var episode in group)
@@ -154,7 +261,7 @@ namespace MyShows.Tasks
         }
 
         private async Task PullMovies(IMyShowsApi api, UserConfig uc, Jellyfin.Database.Implementations.Entities.User user,
-            IProgress<double> progress, double slotStart, double slotSize, CancellationToken ct)
+            JournalStore journal, IProgress<double> progress, double slotStart, double slotSize, CancellationToken ct)
         {
             var movies = _libraryManager.GetItemList(new InternalItemsQuery(user)
             {
@@ -170,27 +277,64 @@ namespace MyShows.Tasks
                 return;
             }
 
-            IReadOnlyDictionary<Guid, bool> watched;
-            try
+            var myShowsIdToMovie = new Dictionary<int, Movie>();
+            foreach (var movie in movies)
             {
-                watched = await api.GetWatchedMovies(uc, movies);
+                ct.ThrowIfCancellationRequested();
+                int msId;
+                try
+                {
+                    msId = await api.GetMyShowsMovieId(uc, movie);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to resolve MyShows id for movie '{0}'", movie.Name);
+                    continue;
+                }
+                if (msId > 0) myShowsIdToMovie[msId] = movie;
             }
-            catch (Exception ex)
+
+            if (myShowsIdToMovie.Count == 0)
             {
-                _logger.LogError(ex, "Failed to fetch watched movies for {0}", user.Username);
                 progress?.Report(slotStart + slotSize);
                 return;
             }
 
-            ct.ThrowIfCancellationRequested();
-            var marked = 0;
-            foreach (var movie in movies)
+            IReadOnlyList<MovieStatus> statuses;
+            try
             {
-                if (!watched.TryGetValue(movie.Id, out var isWatched) || !isWatched) continue;
-                if (TryMarkPlayed(movie, user, null)) marked++;
+                statuses = await api.GetMovieStatusesByIds(uc, myShowsIdToMovie.Keys.ToArray());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to fetch movie statuses for {0}", user.Username);
+                progress?.Report(slotStart + slotSize);
+                return;
             }
 
-            _logger.LogInformation("Marked {0} movies as played for {1}", marked, user.Username);
+            var journalMovies = new List<JournalMovie>(statuses.Count);
+            var marked = 0;
+            foreach (var status in statuses)
+            {
+                if (!myShowsIdToMovie.TryGetValue(status.id, out var movie)) continue;
+                var isWatched = string.Equals(status.watchStatus, "finished", StringComparison.OrdinalIgnoreCase);
+
+                journalMovies.Add(new JournalMovie
+                {
+                    MovieId = status.id,
+                    TmdbId = movie.GetTmdbId(),
+                    Title = movie.Name,
+                    WatchStatus = status.watchStatus,
+                    WatchDate = null,
+                });
+
+                if (isWatched && TryMarkPlayed(movie, user, null)) marked++;
+            }
+
+            await journal.UpsertMovies(uc.Id, journalMovies);
+
+            _logger.LogInformation("Marked {0} movies as played for {1}; journaled {2}",
+                marked, user.Username, journalMovies.Count);
             progress?.Report(slotStart + slotSize);
         }
 

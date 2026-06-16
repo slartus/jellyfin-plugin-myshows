@@ -111,5 +111,26 @@ namespace MyShows.MyShowsApi.Api20
     {
         public int id { get; set; }
         public string watchDate { get; set; }
+        public double? rating { get; set; }
+        public bool isFavorite { get; set; }
+    }
+
+    public class ProfileShowSummary
+    {
+        public ProfileShowSummaryInner show { get; set; }
+        public string watchStatus { get; set; }
+        public double? rating { get; set; }
+        public int watchCount { get; set; }
+        public int totalEpisodes { get; set; }
+        public int watchedEpisodes { get; set; }
+    }
+
+    public class ProfileShowSummaryInner
+    {
+        public int id { get; set; }
+        public string title { get; set; }
+        public string titleOriginal { get; set; }
+        public string status { get; set; }
+        public int? year { get; set; }
     }
 }
