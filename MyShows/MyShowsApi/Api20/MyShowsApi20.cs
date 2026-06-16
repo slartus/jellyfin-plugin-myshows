@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -205,6 +206,65 @@ namespace MyShows.MyShowsApi.Api20
 
             _moviesCache.Store(cacheKey, movieId, CACHED_MOVIE_STORAGE_INTERVAL);
             return movieId;
+        }
+
+        public async Task<IReadOnlyDictionary<(int Season, int Episode), DateTimeOffset?>> GetWatchedEpisodes(UserConfig user, Series series)
+        {
+            var show = await GetShow(user, series);
+            if (show == default(ShowSummary) || show.episodes == null) return new Dictionary<(int, int), DateTimeOffset?>();
+
+            var byId = show.episodes
+                .GroupBy(e => e.id)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var profileEpisodes = await Execute<ProfileEpisode[]>(user, "profile.Episodes", new ProfileEpisodesArgs
+            {
+                showId = show.id,
+            });
+            if (profileEpisodes == null) return new Dictionary<(int, int), DateTimeOffset?>();
+
+            var result = new Dictionary<(int Season, int Episode), DateTimeOffset?>();
+            foreach (var pe in profileEpisodes)
+            {
+                if (!byId.TryGetValue(pe.id, out var summary)) continue;
+                var key = (summary.seasonNumber, summary.episodeNumber);
+                DateTimeOffset? when = null;
+                if (!string.IsNullOrEmpty(pe.watchDate)
+                    && DateTimeOffset.TryParse(pe.watchDate, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+                {
+                    when = parsed;
+                }
+                result[key] = when;
+            }
+            return result;
+        }
+
+        public async Task<IReadOnlyDictionary<Guid, bool>> GetWatchedMovies(UserConfig user, IReadOnlyList<Movie> movies)
+        {
+            if (movies == null || movies.Count == 0) return new Dictionary<Guid, bool>();
+
+            var myShowsToJellyfin = new Dictionary<int, Guid>();
+            foreach (var movie in movies)
+            {
+                var myShowsMovieId = await GetMovieId(user, movie);
+                if (myShowsMovieId <= 0) continue;
+                myShowsToJellyfin[myShowsMovieId] = movie.Id;
+            }
+            if (myShowsToJellyfin.Count == 0) return new Dictionary<Guid, bool>();
+
+            var statuses = await Execute<MovieStatus[]>(user, "profile.MovieStatuses", new ProfileMovieStatusesArgs
+            {
+                movieIds = myShowsToJellyfin.Keys.ToArray(),
+            });
+
+            var result = new Dictionary<Guid, bool>();
+            if (statuses == null) return result;
+            foreach (var status in statuses)
+            {
+                if (!myShowsToJellyfin.TryGetValue(status.id, out var jellyfinId)) continue;
+                result[jellyfinId] = string.Equals(status.watchStatus, "finished", StringComparison.OrdinalIgnoreCase);
+            }
+            return result;
         }
 
         private async Task<T> Execute<T>(UserConfig user, string method, object args)
