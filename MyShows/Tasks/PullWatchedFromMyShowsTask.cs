@@ -344,6 +344,7 @@ namespace MyShows.Tasks
             if (existing != null && existing.Played) return false;
 
             var datePlayed = when?.UtcDateTime ?? DateTime.UtcNow;
+            ScrobbleSuppressor.Suppress(user.Id, item.Id);
             item.MarkPlayed(user, datePlayed, true);
             _logger.LogDebug("Marked played: {0}", item.Name);
             return true;

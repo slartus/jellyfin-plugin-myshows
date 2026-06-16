@@ -121,6 +121,12 @@ namespace MyShows
 
             if (e.Item == null) return;
 
+            if (ScrobbleSuppressor.TryConsume(e.UserId, e.Item.Id))
+            {
+                _logger.LogDebug("Suppressed echo scrobble for item {0} (mark came from pull-task)", e.Item.Name);
+                return;
+            }
+
             var user = Plugin.Instance.Configuration.GetUserById(e.UserId);
 
             // Can't progress
