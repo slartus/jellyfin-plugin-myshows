@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MyShows.Configuration;
+using MyShows.MyShowsApi.Api20;
 
 namespace MyShows.MyShowsApi
 {
@@ -17,7 +18,12 @@ namespace MyShows.MyShowsApi
         Task<bool> CheckMovie(UserConfig user, Movie item);
         Task<bool> UnCheckMovie(UserConfig user, Movie item);
 
-        Task<IReadOnlyDictionary<(int Season, int Episode), DateTimeOffset?>> GetWatchedEpisodes(UserConfig user, Series series);
-        Task<IReadOnlyDictionary<Guid, bool>> GetWatchedMovies(UserConfig user, IReadOnlyList<Movie> movies);
+        Task<int> ResolveMyShowsShowId(UserConfig user, Series series);
+
+        Task<IReadOnlyList<ProfileShowSummary>> GetProfileShows(UserConfig user);
+        Task<IReadOnlyList<ProfileEpisode>> GetEpisodesByShowId(UserConfig user, int showId);
+        Task<ShowSummary> GetShowWithEpisodesById(UserConfig user, int showId);
+        Task<int> GetMyShowsMovieId(UserConfig user, Movie movie);
+        Task<IReadOnlyList<MovieStatus>> GetMovieStatusesByIds(UserConfig user, IReadOnlyList<int> movieIds);
     }
 }

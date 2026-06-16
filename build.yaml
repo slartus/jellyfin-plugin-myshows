@@ -1,7 +1,7 @@
 ---
 name: "MyShows"
 guid: "ef35f6b1-7fe6-44ca-a215-232089fb9bc7"
-version: "5.3.0.0"
+version: "5.4.0.0"
 targetAbi: "10.11.11.0"
 framework: "net9.0"
 overview: "Scrobble your watched shows and movies with MyShows.me"
@@ -12,5 +12,6 @@ owner: "slartus"
 artifacts:
   - "MyShows.dll"
 changelog: >
-  Add scheduled task "MyShows -> Jellyfin: pull watched" that backfills played state in Jellyfin
-  from MyShows.me for users configured in the plugin.
+  Add local watch journal (SQLite) populated by pull-task; expose GET /MyShows/v1/history/{stats,episodes/recent}
+  REST endpoints for external readers (homelab-bot, etc.). Switch PullEpisodes to journal-backed lookup
+  to remove N+1 RPC at scale.
