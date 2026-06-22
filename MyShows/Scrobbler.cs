@@ -256,7 +256,8 @@ namespace MyShows
 
             if (item is Movie movie)
             {
-                return !string.IsNullOrEmpty(movie.GetTmdbId());
+                var (id, _) = movie.GetBestMovieExternalId();
+                return !string.IsNullOrEmpty(id);
             }
 
             return false;

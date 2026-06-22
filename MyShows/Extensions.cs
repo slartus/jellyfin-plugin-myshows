@@ -31,6 +31,23 @@ namespace MyShows
             return string.IsNullOrEmpty(tmdb) ? null : tmdb;
         }
 
+        public static string GetKinopoiskId(this IHasProviderIds item)
+        {
+            var kp = item.GetProviderId("kinopoisk");
+            return string.IsNullOrEmpty(kp) ? null : kp;
+        }
+
+        public static (string id, string source) GetBestMovieExternalId(this IHasProviderIds item)
+        {
+            var tmdb = item.GetTmdbId();
+            if (!string.IsNullOrEmpty(tmdb)) return (tmdb, "tmdb");
+
+            var kp = item.GetKinopoiskId();
+            if (!string.IsNullOrEmpty(kp)) return (kp, "kinopoisk");
+
+            return (null, null);
+        }
+
         public static async Task<T> DeserializeFromHttp<T>(HttpResponseMessage response)
         {
             var contentStream = await response.Content.ReadAsStreamAsync();
