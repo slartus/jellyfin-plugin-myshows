@@ -22,6 +22,9 @@ namespace MyShows
             var tvmaze = item.GetProviderId(MetadataProvider.TvMaze);
             if (!string.IsNullOrEmpty(tvmaze)) return (int.Parse(tvmaze), "tvmaze");
 
+            var kp = item.GetProviderId("kinopoisk");
+            if (!string.IsNullOrEmpty(kp) && int.TryParse(kp, out var kpInt)) return (kpInt, "kinopoisk");
+
             return (-1, null);
         }
 

@@ -7,7 +7,9 @@ using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -150,6 +152,75 @@ namespace MyShows.Api
         }
 
         public class UnscrobblableMovie
+        {
+            public string ItemId { get; set; }
+            public string Title { get; set; }
+            public string OriginalTitle { get; set; }
+            public int? Year { get; set; }
+            public string Path { get; set; }
+            public string KinopoiskId { get; set; }
+        }
+
+        [HttpGet("library/shows/unscrobblable")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult GetUnscrobblableShows([FromQuery] string userId = null)
+        {
+            var scopeUser = ResolveScopeUser(userId);
+
+            var query = scopeUser != null
+                ? new InternalItemsQuery(scopeUser)
+                : new InternalItemsQuery();
+            query.IncludeItemTypes = new[] { BaseItemKind.Series };
+            query.Recursive = true;
+            query.IsVirtualItem = false;
+
+            var allShows = _libraryManager.GetItemList(query).OfType<Series>().ToList();
+
+            var missing = new List<UnscrobblableShow>();
+            var kpOnly = new List<UnscrobblableShow>();
+
+            foreach (var show in allShows)
+            {
+                var imdb = show.GetProviderId(MediaBrowser.Model.Entities.MetadataProvider.Imdb);
+                var tvdb = show.GetProviderId(MediaBrowser.Model.Entities.MetadataProvider.Tvdb);
+                var tvrage = show.GetProviderId(MediaBrowser.Model.Entities.MetadataProvider.TvRage);
+                var tvmaze = show.GetProviderId(MediaBrowser.Model.Entities.MetadataProvider.TvMaze);
+                var hasUpstream =
+                    !string.IsNullOrEmpty(imdb)
+                    || !string.IsNullOrEmpty(tvdb)
+                    || !string.IsNullOrEmpty(tvrage)
+                    || !string.IsNullOrEmpty(tvmaze);
+                if (hasUpstream) continue;
+
+                var kp = show.GetKinopoiskId();
+                var dto = new UnscrobblableShow
+                {
+                    ItemId = show.Id.ToString("N"),
+                    Title = show.Name,
+                    OriginalTitle = show.OriginalTitle,
+                    Year = show.ProductionYear,
+                    Path = show.Path,
+                    KinopoiskId = kp,
+                };
+
+                if (string.IsNullOrEmpty(kp)) missing.Add(dto);
+                else kpOnly.Add(dto);
+            }
+
+            missing.Sort((a, b) => string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase));
+            kpOnly.Sort((a, b) => string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase));
+
+            return Ok(new
+            {
+                total = allShows.Count,
+                noExternalId = missing.Count,
+                kinopoiskOnly = kpOnly.Count,
+                noExternalIdItems = missing,
+                kinopoiskOnlyItems = kpOnly,
+            });
+        }
+
+        public class UnscrobblableShow
         {
             public string ItemId { get; set; }
             public string Title { get; set; }
