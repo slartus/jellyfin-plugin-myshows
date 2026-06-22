@@ -1,7 +1,13 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net.Mime;
 using System.Security.Claims;
 using System.Threading.Tasks;
+using Jellyfin.Data.Enums;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -11,11 +17,20 @@ namespace MyShows.Api
 {
     [ApiController]
     [Authorize]
-    [Route("MyShows/v1/history")]
+    [Route("MyShows/v1")]
     [Produces(MediaTypeNames.Application.Json)]
     public class HistoryController : ControllerBase
     {
-        [HttpGet("stats")]
+        private readonly ILibraryManager _libraryManager;
+        private readonly IUserManager _userManager;
+
+        public HistoryController(ILibraryManager libraryManager, IUserManager userManager)
+        {
+            _libraryManager = libraryManager;
+            _userManager = userManager;
+        }
+
+        [HttpGet("history/stats")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<ActionResult<HistoryStats>> GetStats(
             [FromQuery] int topShows = 10,
@@ -31,7 +46,7 @@ namespace MyShows.Api
             return Ok(stats);
         }
 
-        [HttpGet("episodes/recent")]
+        [HttpGet("history/episodes/recent")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<ActionResult> GetRecentEpisodes(
             [FromQuery] int limit = 20,
@@ -48,7 +63,7 @@ namespace MyShows.Api
             return Ok(new { items = episodes });
         }
 
-        [HttpGet("shows/recent")]
+        [HttpGet("history/shows/recent")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<ActionResult> GetRecentShows(
             [FromQuery] int limit = 15,
@@ -65,7 +80,7 @@ namespace MyShows.Api
             return Ok(new { items = shows });
         }
 
-        [HttpGet("movies")]
+        [HttpGet("history/movies")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<ActionResult> GetMovies(
             [FromQuery] int limit = 30,
@@ -81,6 +96,69 @@ namespace MyShows.Api
 
             var movies = await store.GetMovies(targetUser, limit, onlyFinished);
             return Ok(new { items = movies });
+        }
+
+        [HttpGet("library/movies/unscrobblable")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult GetUnscrobblableMovies()
+        {
+            var caller = CurrentUserId();
+            if (caller == null) return Forbid();
+            if (!Guid.TryParseExact(caller, "N", out var userGuid)) return Forbid();
+            var user = _userManager.GetUserById(userGuid);
+            if (user == null) return Forbid();
+
+            var allMovies = _libraryManager.GetItemList(new InternalItemsQuery(user)
+            {
+                IncludeItemTypes = new[] { BaseItemKind.Movie },
+                Recursive = true,
+                IsVirtualItem = false,
+            }).OfType<Movie>().ToList();
+
+            var missing = new List<UnscrobblableMovie>();
+            var kpOnly = new List<UnscrobblableMovie>();
+
+            foreach (var movie in allMovies)
+            {
+                var tmdb = movie.GetTmdbId();
+                var kp = movie.GetKinopoiskId();
+                if (!string.IsNullOrEmpty(tmdb)) continue;
+
+                var dto = new UnscrobblableMovie
+                {
+                    ItemId = movie.Id.ToString("N"),
+                    Title = movie.Name,
+                    OriginalTitle = movie.OriginalTitle,
+                    Year = movie.ProductionYear,
+                    Path = movie.Path,
+                    KinopoiskId = kp,
+                };
+
+                if (string.IsNullOrEmpty(kp)) missing.Add(dto);
+                else kpOnly.Add(dto);
+            }
+
+            missing.Sort((a, b) => string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase));
+            kpOnly.Sort((a, b) => string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase));
+
+            return Ok(new
+            {
+                total = allMovies.Count,
+                noExternalId = missing.Count,
+                kinopoiskOnly = kpOnly.Count,
+                noExternalIdItems = missing,
+                kinopoiskOnlyItems = kpOnly,
+            });
+        }
+
+        public class UnscrobblableMovie
+        {
+            public string ItemId { get; set; }
+            public string Title { get; set; }
+            public string OriginalTitle { get; set; }
+            public int? Year { get; set; }
+            public string Path { get; set; }
+            public string KinopoiskId { get; set; }
         }
 
         private string ResolveTargetUserId(string requested)

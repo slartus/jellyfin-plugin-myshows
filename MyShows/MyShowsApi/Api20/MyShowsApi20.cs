@@ -182,26 +182,26 @@ namespace MyShows.MyShowsApi.Api20
 
         protected async Task<int> GetMovieId(UserConfig user, Movie item)
         {
-            var tmdbId = item.GetTmdbId();
-            if (string.IsNullOrEmpty(tmdbId))
+            var (externalId, source) = item.GetBestMovieExternalId();
+            if (string.IsNullOrEmpty(externalId))
             {
-                _logger.LogWarning("No TMDb id for movie '{0}' — MyShows only matches movies by TMDb id", item.Name);
+                _logger.LogWarning("No TMDb/KinoPoisk id for movie '{0}' — MyShows cannot match it", item.Name);
                 return 0;
             }
 
-            var cacheKey = "tmdb:" + tmdbId;
+            var cacheKey = source + ":" + externalId;
             var cached = _moviesCache.Get(cacheKey);
             if (cached > 0) return cached;
 
             var movieId = await Execute<int>(user, "movies.AddExternalMovie", new MoviesAddExternalMovieArgs
             {
-                externalId = tmdbId,
-                source = "tmdb"
+                externalId = externalId,
+                source = source
             });
 
             if (movieId <= 0)
             {
-                _logger.LogWarning("MyShows did not return an id for TMDb={0} ('{1}')", tmdbId, item.Name);
+                _logger.LogWarning("MyShows did not return an id for {0}={1} ('{2}')", source, externalId, item.Name);
                 return 0;
             }
 

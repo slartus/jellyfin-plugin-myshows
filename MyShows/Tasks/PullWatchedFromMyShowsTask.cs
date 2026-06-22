@@ -269,9 +269,13 @@ namespace MyShows.Tasks
                 IncludeItemTypes = new[] { BaseItemKind.Movie },
                 Recursive = true,
                 IsVirtualItem = false,
-            }).OfType<Movie>().Where(m => !string.IsNullOrEmpty(m.GetTmdbId())).ToList();
+            }).OfType<Movie>().Where(m =>
+            {
+                var (id, _) = m.GetBestMovieExternalId();
+                return !string.IsNullOrEmpty(id);
+            }).ToList();
 
-            _logger.LogInformation("Found {0} movies with TMDb id for {1}", movies.Count, user.Username);
+            _logger.LogInformation("Found {0} movies with TMDb/KP id for {1}", movies.Count, user.Username);
             if (movies.Count == 0)
             {
                 progress?.Report(slotStart + slotSize);
