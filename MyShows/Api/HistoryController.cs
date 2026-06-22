@@ -100,20 +100,18 @@ namespace MyShows.Api
 
         [HttpGet("library/movies/unscrobblable")]
         [ProducesResponseType(StatusCodes.Status200OK)]
-        public ActionResult GetUnscrobblableMovies()
+        public ActionResult GetUnscrobblableMovies([FromQuery] string userId = null)
         {
-            var caller = CurrentUserId();
-            if (caller == null) return Forbid();
-            if (!Guid.TryParseExact(caller, "N", out var userGuid)) return Forbid();
-            var user = _userManager.GetUserById(userGuid);
-            if (user == null) return Forbid();
+            var scopeUser = ResolveScopeUser(userId);
 
-            var allMovies = _libraryManager.GetItemList(new InternalItemsQuery(user)
-            {
-                IncludeItemTypes = new[] { BaseItemKind.Movie },
-                Recursive = true,
-                IsVirtualItem = false,
-            }).OfType<Movie>().ToList();
+            var query = scopeUser != null
+                ? new InternalItemsQuery(scopeUser)
+                : new InternalItemsQuery();
+            query.IncludeItemTypes = new[] { BaseItemKind.Movie };
+            query.Recursive = true;
+            query.IsVirtualItem = false;
+
+            var allMovies = _libraryManager.GetItemList(query).OfType<Movie>().ToList();
 
             var missing = new List<UnscrobblableMovie>();
             var kpOnly = new List<UnscrobblableMovie>();
@@ -159,6 +157,32 @@ namespace MyShows.Api
             public int? Year { get; set; }
             public string Path { get; set; }
             public string KinopoiskId { get; set; }
+        }
+
+        private Jellyfin.Database.Implementations.Entities.User ResolveScopeUser(string requested)
+        {
+            var requestedNorm = NormaliseUserId(requested);
+            if (TryLookupUser(requestedNorm, out var requestedUser)) return requestedUser;
+
+            var caller = CurrentUserId();
+            if (TryLookupUser(caller, out var callerUser)) return callerUser;
+
+            foreach (var uc in Plugin.Instance.PluginConfiguration.Users ?? Array.Empty<MyShows.Configuration.UserConfig>())
+            {
+                if (TryLookupUser(uc?.Id, out var configUser)) return configUser;
+            }
+
+            return null;
+        }
+
+        private bool TryLookupUser(string raw, out Jellyfin.Database.Implementations.Entities.User user)
+        {
+            user = null;
+            if (string.IsNullOrWhiteSpace(raw)) return false;
+            if (!Guid.TryParseExact(raw, "N", out var guid) && !Guid.TryParse(raw, out guid)) return false;
+            if (guid == Guid.Empty) return false;
+            user = _userManager.GetUserById(guid);
+            return user != null;
         }
 
         private string ResolveTargetUserId(string requested)
