@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Net.Mime;
 using System.Security.Claims;
 using System.Threading.Tasks;
@@ -13,6 +14,8 @@ using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using MyShows.MyShowsApi;
 using MyShows.Journal;
 
 namespace MyShows.Api
@@ -25,30 +28,48 @@ namespace MyShows.Api
     {
         private readonly ILibraryManager _libraryManager;
         private readonly IUserManager _userManager;
+        private readonly MyShowsApiFactory _apiFactory;
 
-        public HistoryController(ILibraryManager libraryManager, IUserManager userManager)
+        public HistoryController(
+            ILibraryManager libraryManager,
+            IUserManager userManager,
+            ILoggerFactory loggerFactory,
+            IHttpClientFactory httpClientFactory)
         {
             _libraryManager = libraryManager;
             _userManager = userManager;
+            _apiFactory = new MyShowsApiFactory(loggerFactory.CreateLogger("MyShows.AuthProbe"), httpClientFactory);
         }
 
         [HttpGet("auth/status")]
         [ProducesResponseType(StatusCodes.Status200OK)]
-        public ActionResult<AuthStatus> GetAuthStatus([FromQuery] string userId = null)
+        public async Task<ActionResult<AuthStatus>> GetAuthStatus(
+            [FromQuery] string userId = null,
+            [FromQuery] bool probe = false)
         {
             var targetUser = ResolveTargetUserId(userId);
             if (targetUser == null) return Forbid();
 
             var uc = (Plugin.Instance.PluginConfiguration.Users ?? Array.Empty<MyShows.Configuration.UserConfig>())
                 .FirstOrDefault(u => NormaliseUserId(u?.Id) == targetUser);
+            var linked = uc != null && !string.IsNullOrEmpty(uc.AccessToken);
+            string probeError = null;
+            var probed = probe && linked && uc.AuthError == null;
+            if (probed)
+            {
+                probeError = await _apiFactory.GetApi(uc.ApiVersion).ProbeAuth(uc);
+            }
+
             return Ok(new AuthStatus
             {
                 UserId = targetUser,
-                Linked = uc != null && !string.IsNullOrEmpty(uc.AccessToken),
+                Linked = linked,
                 Name = uc?.Name,
                 AuthError = uc?.AuthError,
                 AuthErrorAt = uc?.AuthErrorAt,
                 ExpirationTime = uc?.ExpirationTime,
+                ProbeOk = probed ? probeError == null : null,
+                ProbeError = probeError,
             });
         }
 
@@ -60,6 +81,8 @@ namespace MyShows.Api
             public string AuthError { get; set; }
             public DateTime? AuthErrorAt { get; set; }
             public DateTime? ExpirationTime { get; set; }
+            public bool? ProbeOk { get; set; }
+            public string ProbeError { get; set; }
         }
 
         [HttpGet("history/stats")]
@@ -286,35 +309,10 @@ namespace MyShows.Api
             return user != null;
         }
 
-        private string ResolveTargetUserId(string requested)
-        {
-            var caller = CurrentUserId();
-            if (caller == null) return null;
+        private string ResolveTargetUserId(string requested) => CallerScope.ResolveTargetUserId(User, requested);
 
-            if (string.IsNullOrWhiteSpace(requested)) return caller;
+        private string CurrentUserId() => CallerScope.CurrentUserId(User);
 
-            var requestedNorm = NormaliseUserId(requested);
-            if (requestedNorm == null) return null;
-            if (requestedNorm == caller) return caller;
-            if (IsAdmin()) return requestedNorm;
-            return null;
-        }
-
-        private string CurrentUserId()
-        {
-            var raw = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                      ?? User.FindFirst("Jellyfin-UserId")?.Value;
-            return NormaliseUserId(raw);
-        }
-
-        private bool IsAdmin() =>
-            User.IsInRole("Administrator")
-            || string.Equals(User.FindFirst("Jellyfin-IsAdmin")?.Value, "true", StringComparison.OrdinalIgnoreCase);
-
-        private static string NormaliseUserId(string raw)
-        {
-            if (string.IsNullOrWhiteSpace(raw)) return null;
-            return Guid.TryParse(raw, out var guid) ? guid.ToString("N").ToLowerInvariant() : null;
-        }
+        private static string NormaliseUserId(string raw) => CallerScope.NormaliseUserId(raw);
     }
 }

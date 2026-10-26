@@ -131,6 +131,43 @@ namespace MyShows.Configuration
             }
         }
 
+        /// <summary>
+        /// MyShows rejected <paramref name="usedAccessToken"/> although it has not expired yet:
+        /// mark it expired so the next call refreshes it.
+        /// </summary>
+        /// <returns>true if the call is worth retrying</returns>
+        public async Task<bool> InvalidateAccessToken(string usedAccessToken)
+        {
+            var refreshLock = RefreshLocks.GetOrAdd(Id, _ => new SemaphoreSlim(1, 1));
+            await refreshLock.WaitAsync();
+            try
+            {
+                var current = Plugin.Instance.Configuration.Users.FirstOrDefault(u => u.Id == Id) ?? this;
+                if (current.AccessToken != usedAccessToken)
+                {
+                    CopyAuthStateFrom(current);
+                    return true;
+                }
+
+                var now = DateTime.UtcNow;
+                if (ForcedRefreshAt.TryGetValue(Id, out var last) && now - last < ForcedRefreshInterval) return false;
+                ForcedRefreshAt[Id] = now;
+
+                current.ExpirationTime = DateTime.MinValue;
+                CopyAuthStateFrom(current);
+                ExpirationTime = DateTime.MinValue;
+                return true;
+            }
+            finally
+            {
+                refreshLock.Release();
+            }
+        }
+
+        private static readonly ConcurrentDictionary<string, DateTime> ForcedRefreshAt = new();
+
+        private static readonly TimeSpan ForcedRefreshInterval = TimeSpan.FromMinutes(10);
+
         private const string InvalidGrant = "invalid_grant";
 
         private void CopyAuthStateFrom(UserConfig other)

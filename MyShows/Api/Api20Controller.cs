@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Net.Mime;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Net;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using MyShows.Configuration;
@@ -10,6 +11,7 @@ using MyShows.Configuration;
 namespace MyShows.Api
 {
     [ApiController]
+    [Authorize]
     [Route("MyShows/v2")]
     [Produces(MediaTypeNames.Application.Json)]
     public class Api20Controller : ControllerBase
@@ -24,11 +26,14 @@ namespace MyShows.Api
 
         [HttpPost("login")]
         [ProducesResponseType(StatusCodes.Status200OK)]
-        public async Task<object> LogIn(
+        public async Task<IActionResult> LogIn(
             [FromForm] string id,
             [FromForm] string login,
             [FromForm] string password)
         {
+            var targetUserId = CallerScope.ResolveTargetUserId(User, id);
+            if (string.IsNullOrWhiteSpace(id) || targetUserId == null) return Forbid();
+
             try
             {
                 var httpClient = GetHttpClient();
@@ -36,11 +41,11 @@ namespace MyShows.Api
 
                 if (error != null)
                 {
-                    return new
+                    return Ok(new
                     {
                         success = false,
                         statusText = error.error_description
-                    };
+                    });
                 }
 
                 Plugin.Instance.PluginConfiguration.AddUser(new UserConfig
@@ -49,20 +54,20 @@ namespace MyShows.Api
                     AccessToken = token.access_token,
                     RefreshToken = token.refresh_token,
                     ExpirationTime = DateTime.Now.AddSeconds(token.expires_in),
-                    Id = id,
+                    Id = targetUserId,
                     Name = login
                 });
             }
             catch (HttpRequestException e)
             {
-                return new
+                return Ok(new
                 {
                     success = false,
                     statusText = e.Message
-                };
+                });
             }
 
-            return new { success = true };
+            return Ok(new { success = true });
         }
 
         private HttpClient GetHttpClient()

@@ -25,5 +25,8 @@ namespace MyShows.MyShowsApi
         Task<ShowSummary> GetShowWithEpisodesById(UserConfig user, int showId);
         Task<int> GetMyShowsMovieId(UserConfig user, Movie movie);
         Task<IReadOnlyList<MovieStatus>> GetMovieStatusesByIds(UserConfig user, IReadOnlyList<int> movieIds);
+
+        /// <returns>null when MyShows accepts the user's credentials, otherwise the failure reason</returns>
+        Task<string> ProbeAuth(UserConfig user);
     }
 }

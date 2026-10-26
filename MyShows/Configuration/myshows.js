@@ -74,6 +74,10 @@ function onLoginClick(e) {
         } else {
             loadConfig(page).then(() => saveConfig(page))
         }
+    }).catch(reason => {
+        Dashboard.alert({
+            message: 'An error occurred when trying to authorize device: ' + (reason && reason.status ? 'HTTP ' + reason.status : reason)
+        })
     }).finally(() => Dashboard.hideLoadingMsg())
 
     return false
