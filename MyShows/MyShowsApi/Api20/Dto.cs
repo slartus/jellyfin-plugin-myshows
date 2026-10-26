@@ -22,6 +22,41 @@ namespace MyShows.MyShowsApi.Api20
         public string message { get; set; }
     }
 
+    public class MoviesGetCatalogArgs
+    {
+        public MoviesCatalogSearch search { get; set; }
+        public int page { get; set; }
+        public int pageSize { get; set; }
+    }
+
+    public class MoviesCatalogSearch
+    {
+        public string query { get; set; }
+    }
+
+    public class MovieCatalogEntry
+    {
+        public MovieCatalogMovie movie { get; set; }
+    }
+
+    public class MovieCatalogMovie
+    {
+        public int id { get; set; }
+        public string title { get; set; }
+        public int year { get; set; }
+    }
+
+    public class MoviesGetByIdArgs
+    {
+        public int movieId { get; set; }
+    }
+
+    public class MovieDetails
+    {
+        public int id { get; set; }
+        public int? kinopoiskId { get; set; }
+    }
+
     public class ShowsGetByIdArgs
     {
         public int showId { get; set; }

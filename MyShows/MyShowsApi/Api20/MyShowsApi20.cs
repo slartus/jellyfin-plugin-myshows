@@ -192,12 +192,27 @@ namespace MyShows.MyShowsApi.Api20
             var cacheKey = source + ":" + externalId;
             var cached = _moviesCache.Get(cacheKey);
             if (cached > 0) return cached;
+            if (cached == NotFoundMovieId) return 0;
 
-            var movieId = await Execute<int>(user, "movies.AddExternalMovie", new MoviesAddExternalMovieArgs
+            int movieId;
+            if (source == "kinopoisk")
             {
-                externalId = externalId,
-                source = source
-            });
+                // movies.AddExternalMovie accepts only the tmdb source; KinoPoisk ids are matched via catalog search.
+                var (foundId, searchCompleted) = await FindMovieByKinopoiskId(user, item, externalId);
+                movieId = foundId;
+                if (movieId <= 0 && searchCompleted)
+                {
+                    _moviesCache.Store(cacheKey, NotFoundMovieId, NOT_FOUND_MOVIE_STORAGE_INTERVAL);
+                }
+            }
+            else
+            {
+                movieId = await Execute<int>(user, "movies.AddExternalMovie", new MoviesAddExternalMovieArgs
+                {
+                    externalId = externalId,
+                    source = source
+                });
+            }
 
             if (movieId <= 0)
             {
@@ -208,6 +223,45 @@ namespace MyShows.MyShowsApi.Api20
             _moviesCache.Store(cacheKey, movieId, CACHED_MOVIE_STORAGE_INTERVAL);
             return movieId;
         }
+
+        private async Task<(int movieId, bool searchCompleted)> FindMovieByKinopoiskId(UserConfig user, Movie item, string kinopoiskId)
+        {
+            var checkedIds = new HashSet<int>();
+            var queries = new[] { item.Name, item.OriginalTitle }
+                .Where(q => !string.IsNullOrWhiteSpace(q))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+            foreach (var query in queries)
+            {
+                var (catalog, catalogError) = await Call<MovieCatalogEntry[]>(user, "movies.GetCatalog", new MoviesGetCatalogArgs
+                {
+                    search = new MoviesCatalogSearch { query = query },
+                    page = 0,
+                    pageSize = KinopoiskSearchPageSize,
+                });
+                if (catalogError != null) return (0, false);
+                var candidates = (catalog ?? Array.Empty<MovieCatalogEntry>())
+                    .Select(e => e?.movie)
+                    .Where(m => m != null && checkedIds.Add(m.id))
+                    .Where(m => item.ProductionYear == null || m.year == 0 || Math.Abs(m.year - item.ProductionYear.Value) <= 1)
+                    .Take(KinopoiskCandidatesToVerify);
+                foreach (var candidate in candidates)
+                {
+                    var (details, detailsError) = await Call<MovieDetails>(user, "movies.GetById", new MoviesGetByIdArgs { movieId = candidate.id });
+                    if (detailsError != null) return (0, false);
+                    if (details?.kinopoiskId?.ToString(CultureInfo.InvariantCulture) == kinopoiskId) return (candidate.id, true);
+                }
+            }
+
+            return (0, true);
+        }
+
+        private const int NotFoundMovieId = -1;
+
+        private static readonly TimeSpan NOT_FOUND_MOVIE_STORAGE_INTERVAL = TimeSpan.FromHours(12);
+
+        private const int KinopoiskSearchPageSize = 10;
+
+        private const int KinopoiskCandidatesToVerify = 5;
 
         public async Task<int> ResolveMyShowsShowId(UserConfig user, Series series)
         {
@@ -290,13 +344,61 @@ namespace MyShows.MyShowsApi.Api20
 
         private async Task<T> Execute<T>(UserConfig user, string method, object args)
         {
-            var isTokenValid = await user.EnsureAccessTokenValid(GetHttpClient(), _logger);
-            if (!isTokenValid)
-            {
-                _logger.LogWarning("MyShows: no usable access token for {0}, skipping {1}", user.Name, method);
-                return default;
-            }
+            var (result, _) = await Call<T>(user, method, args);
+            return result;
+        }
 
+        public async Task<string> ProbeAuth(UserConfig user)
+        {
+            try
+            {
+                var (_, error) = await Call<object>(user, "profile.Get", new { });
+                return error;
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
+
+        private async Task<(T result, string error)> Call<T>(UserConfig user, string method, object args)
+        {
+            for (var attempt = 0; ; attempt++)
+            {
+                var isTokenValid = await user.EnsureAccessTokenValid(GetHttpClient(), _logger);
+                if (!isTokenValid)
+                {
+                    _logger.LogWarning("MyShows: no usable access token for {0}, skipping {1}", user.Name, method);
+                    return (default, user.AuthError ?? "no usable access token");
+                }
+
+                var usedAccessToken = user.AccessToken;
+                var (rpc, status) = await Send<T>(usedAccessToken, method, args);
+                var authRejected = status == 401 || status == 403 || rpc?.error?.code == 401 || rpc?.error?.code == 403;
+                if (authRejected && attempt == 0 && await user.InvalidateAccessToken(usedAccessToken))
+                {
+                    _logger.LogWarning("MyShows: {0} rejected the access token of {1}, refreshing and retrying", method, user.Name);
+                    continue;
+                }
+
+                if (status < 200 || status > 299)
+                {
+                    _logger.LogWarning("MyShows: {0} for {1} returned HTTP {2}", method, user.Name, status);
+                }
+
+                if (rpc?.error != null)
+                {
+                    _logger.LogWarning("JSON-RPC error: {0}", rpc.error.message);
+                    return (rpc.result, $"{method}: {rpc.error.code} {rpc.error.message}");
+                }
+
+                if (status < 200 || status > 299) return (default, $"{method}: HTTP {status}");
+                return (rpc == null ? default : rpc.result, null);
+            }
+        }
+
+        private async Task<(JsonRpcResult<T> rpc, int status)> Send<T>(string accessToken, string method, object args)
+        {
             var call = new JsonRpcCall
             {
                 jsonrpc = "2.0",
@@ -310,19 +412,18 @@ namespace MyShows.MyShowsApi.Api20
                 Content = new StringContent(JsonSerializer.Serialize(call, JsonDefaults.Options), Encoding.UTF8, "application/json"),
             };
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            request.Headers.TryAddWithoutValidation("Authorization2", "Bearer " + user.AccessToken);
+            request.Headers.TryAddWithoutValidation("Authorization2", "Bearer " + accessToken);
             var response = await httpClient.SendAsync(request);
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning("MyShows: {0} for {1} returned HTTP {2}", method, user.Name, (int)response.StatusCode);
-            }
+            var status = (int)response.StatusCode;
 
-            var result = await Extensions.DeserializeFromHttp<JsonRpcResult<T>>(response);
-            if (result.error != null)
+            try
             {
-                _logger.LogWarning("JSON-RPC error: {0}", result.error.message);
+                return (await Extensions.DeserializeFromHttp<JsonRpcResult<T>>(response), status);
             }
-            return result.result;
+            catch (JsonException) when (!response.IsSuccessStatusCode)
+            {
+                return (null, status);
+            }
         }
 
         private HttpClient GetHttpClient(string accessToken = null)
