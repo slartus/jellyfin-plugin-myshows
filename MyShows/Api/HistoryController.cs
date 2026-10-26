@@ -32,6 +32,36 @@ namespace MyShows.Api
             _userManager = userManager;
         }
 
+        [HttpGet("auth/status")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<AuthStatus> GetAuthStatus([FromQuery] string userId = null)
+        {
+            var targetUser = ResolveTargetUserId(userId);
+            if (targetUser == null) return Forbid();
+
+            var uc = (Plugin.Instance.PluginConfiguration.Users ?? Array.Empty<MyShows.Configuration.UserConfig>())
+                .FirstOrDefault(u => NormaliseUserId(u?.Id) == targetUser);
+            return Ok(new AuthStatus
+            {
+                UserId = targetUser,
+                Linked = uc != null && !string.IsNullOrEmpty(uc.AccessToken),
+                Name = uc?.Name,
+                AuthError = uc?.AuthError,
+                AuthErrorAt = uc?.AuthErrorAt,
+                ExpirationTime = uc?.ExpirationTime,
+            });
+        }
+
+        public class AuthStatus
+        {
+            public string UserId { get; set; }
+            public bool Linked { get; set; }
+            public string Name { get; set; }
+            public string AuthError { get; set; }
+            public DateTime? AuthErrorAt { get; set; }
+            public DateTime? ExpirationTime { get; set; }
+        }
+
         [HttpGet("history/stats")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<ActionResult<HistoryStats>> GetStats(

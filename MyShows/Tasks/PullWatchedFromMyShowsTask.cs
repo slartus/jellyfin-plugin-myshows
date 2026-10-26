@@ -63,8 +63,13 @@ namespace MyShows.Tasks
                 return;
             }
 
+            foreach (var revoked in config.Users.Where(u => u.PullWatchedFromMyShows && u.AuthError != null))
+            {
+                _logger.LogWarning("Skipping {0}: MyShows credentials were revoked ({1}), re-link the account in plugin settings", revoked.Name, revoked.AuthError);
+            }
+
             var userConfigs = config.Users
-                .Where(u => !string.IsNullOrEmpty(u.AccessToken) && u.PullWatchedFromMyShows)
+                .Where(u => !string.IsNullOrEmpty(u.AccessToken) && u.PullWatchedFromMyShows && u.AuthError == null)
                 .ToList();
             if (userConfigs.Count == 0)
             {

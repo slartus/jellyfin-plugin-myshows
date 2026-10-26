@@ -1,6 +1,5 @@
 
 const pluginId = 'ef35f6b1-7fe6-44ca-a215-232089fb9bc7'
-let configCache = {}
 
 function onViewShow() {
     const page = this
@@ -12,11 +11,15 @@ function loadConfig(page) {
     Dashboard.showLoadingMsg()
 
     return ApiClient.getPluginConfiguration(pluginId).then(config => {
-        configCache = config
         const userId = ApiClient.getCurrentUserId()
         const user = config.Users.find(e => e.Id == userId && e.AccessToken)
+        const authError = page.querySelector('#auth-error')
+        authError.innerText = user && user.AuthError
+            ? 'MyShows rejected the saved credentials (' + user.AuthError + '). Sign in again to resume scrobbling.'
+            : ''
+        authError.style.display = authError.innerText ? 'block' : 'none'
 
-        if (user) {
+        if (user && !user.AuthError) {
             page.querySelector('#ScrobbleAt').value = user.ScrobbleAt
             page.querySelector('#linked-account').innerText = user.Name
             showLogin(page, true)
@@ -33,12 +36,18 @@ function showLogin(page, isLoggedIn) {
     page.querySelector('#login-container').style.display = isLoggedIn ? 'none' : 'block'
 }
 
-function saveConfig(page) {
-    const userId = ApiClient.getCurrentUserId()
-    const user = configCache.Users.find(e => e.Id == userId)
-    if (user)
-        user.ScrobbleAt = page.querySelector("#config-container #ScrobbleAt").value
-    return ApiClient.updatePluginConfiguration(pluginId, configCache).then(Dashboard.processPluginConfigurationUpdateResult)
+function saveConfig(page, mutate) {
+    return ApiClient.getPluginConfiguration(pluginId).then(config => {
+        const userId = ApiClient.getCurrentUserId()
+        if (mutate) {
+            mutate(config, userId)
+        } else {
+            const user = config.Users.find(e => e.Id == userId)
+            if (user)
+                user.ScrobbleAt = page.querySelector("#config-container #ScrobbleAt").value
+        }
+        return ApiClient.updatePluginConfiguration(pluginId, config)
+    }).then(Dashboard.processPluginConfigurationUpdateResult)
 }
 
 function onLoginClick(e) {
@@ -72,9 +81,9 @@ function onLoginClick(e) {
 
 function onUnlinkClick() {
     const page = this.closest('.page')
-    const userId = ApiClient.getCurrentUserId()
-    configCache.Users = configCache.Users.filter(e => e.Id != userId)
-    saveConfig(page).then(() => loadConfig(page))
+    saveConfig(page, (config, userId) => {
+        config.Users = config.Users.filter(e => e.Id != userId)
+    }).then(() => loadConfig(page))
 }
 
 function onFormSubmit() {

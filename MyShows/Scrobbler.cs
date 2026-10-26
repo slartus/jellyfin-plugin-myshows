@@ -130,7 +130,7 @@ namespace MyShows
             var user = Plugin.Instance.Configuration.GetUserById(e.UserId);
 
             // Can't progress
-            if (user == null || !CanSync(e.Item))
+            if (user == null || user.AuthError != null || !CanSync(e.Item))
             {
                 return;
             }
@@ -223,6 +223,12 @@ namespace MyShows
             if (user == null)
             {
                 _logger.LogInformation("Could not match user with any stored credentials");
+                return false;
+            }
+
+            if (user.AuthError != null)
+            {
+                _logger.LogInformation("MyShows: credentials of {0} were revoked ({1}), re-link the account in plugin settings", user.Name, user.AuthError);
                 return false;
             }
 
