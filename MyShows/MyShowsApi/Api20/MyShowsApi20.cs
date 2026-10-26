@@ -290,10 +290,10 @@ namespace MyShows.MyShowsApi.Api20
 
         private async Task<T> Execute<T>(UserConfig user, string method, object args)
         {
-            var isTokenValid = await user.EnsureAccessTokenValid(GetHttpClient());
+            var isTokenValid = await user.EnsureAccessTokenValid(GetHttpClient(), _logger);
             if (!isTokenValid)
             {
-                _logger.LogWarning("AccessToken invalidated and RefreshToken isn't helped. Too bad.");
+                _logger.LogWarning("MyShows: no usable access token for {0}, skipping {1}", user.Name, method);
                 return default;
             }
 
@@ -312,6 +312,10 @@ namespace MyShows.MyShowsApi.Api20
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             request.Headers.TryAddWithoutValidation("Authorization2", "Bearer " + user.AccessToken);
             var response = await httpClient.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("MyShows: {0} for {1} returned HTTP {2}", method, user.Name, (int)response.StatusCode);
+            }
 
             var result = await Extensions.DeserializeFromHttp<JsonRpcResult<T>>(response);
             if (result.error != null)

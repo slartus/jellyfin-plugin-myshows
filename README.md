@@ -21,6 +21,8 @@ Plugin configuration is tied to a Jellyfin user — each user has their own MySh
 
 To opt-in to pull-sync, set `<PullWatchedFromMyShows>true</PullWatchedFromMyShows>` for the desired `UserConfig` in `<jellyfin-config>/plugins/configurations/MyShows.xml`. Default is `false` to avoid surprises on upgrade.
 
+If a token refresh fails, the account is **not** unlinked (since 5.4.4). Network errors and other transient failures are retried on the next call. If MyShows rejects the refresh token (`invalid_grant`), the reason is stored in `AuthError` / `AuthErrorAt`, scrobbling for that user stops, and the settings page asks to sign in again. Signing in again clears the error and keeps `ScrobbleAt` / `PullWatchedFromMyShows`. Use `GET /MyShows/v1/auth/status` to monitor this state.
+
 ### Movies — requirements
 
 Movies are matched by **TMDb id** first, then **KinoPoisk id** as fallback (since 5.4.2). MyShows `movies.AddExternalMovie` accepts `source` values `tmdb`, `imdb`, `kinopoisk` (this fork uses `tmdb` and `kinopoisk`). Make sure at least one of TMDb / KinoPoisk metadata providers is enabled and matches your movies.
@@ -31,6 +33,7 @@ If neither provider id is present, the plugin silently skips scrobbling (since b
 
 All under `Authorization` (Jellyfin `X-Emby-Token` or session token).
 
+- `GET /MyShows/v1/auth/status?userId=<guid>` — whether the user is linked to MyShows: `{UserId, Linked, Name, AuthError, AuthErrorAt, ExpirationTime}`. A user is healthy when `Linked` is true and `AuthError` is null.
 - `GET /MyShows/v1/history/stats?topShows=N&userId=<guid>` — stats from the local SQLite journal (see [Pull-sync](#pull-sync)).
 - `GET /MyShows/v1/history/episodes/recent?limit=N&userId=<guid>` — latest watched episodes.
 - `GET /MyShows/v1/history/shows/recent?limit=N&userId=<guid>` — latest watched shows.

@@ -29,21 +29,12 @@ namespace MyShows.Configuration
             }
             else
             {
+                user.ScrobbleAt = users[index].ScrobbleAt;
+                user.PullWatchedFromMyShows = users[index].PullWatchedFromMyShows;
                 users[index] = user;
             }
             Users = users.ToArray();
             Plugin.Instance.SaveConfiguration();
-        }
-
-        public void RemoveUser(UserConfig user)
-        {
-            if (Users.Contains(user))
-            {
-                var users = Users.ToList();
-                users.Remove(user);
-                Users = users.ToArray();
-                Plugin.Instance.SaveConfiguration();
-            }
         }
     }
 }
