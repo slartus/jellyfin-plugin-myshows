@@ -36,7 +36,7 @@ If neither provider id is present, the plugin silently skips scrobbling (since b
 All under `Authorization` (Jellyfin `X-Emby-Token` or session token).
 
 - `GET /MyShows/v1/auth/status?userId=<guid>&probe=true` — whether the user is linked to MyShows: `{UserId, Linked, Name, AuthError, AuthErrorAt, ExpirationTime, ProbeOk, ProbeError}`. With `probe=true` the plugin refreshes the token if needed and calls `profile.Get`, so revoked tokens, `invalid_client` and network problems show up as `ProbeOk: false` with the reason in `ProbeError`. A user is healthy when `Linked` is true, `AuthError` is null and the probe succeeded.
-- `GET /MyShows/v1/history/profile?userId=<guid>` — tracked movies and series from the linked MyShows account, including personal ratings, watch status and the most recently watched episode (by MyShows date, with episode number as fallback). Reads MyShows directly and includes titles outside the Jellyfin library.
+- `GET /MyShows/v1/history/profile?userId=<guid>` — tracked movies and series from the linked MyShows account, including personal ratings, watch status and the most recently watched episode (by MyShows date, with episode number as fallback). Since 5.4.8.0 entries also carry `GenreAliases` (English genre aliases); series carry `ShowStatus` (MyShows show status), `TotalSeasons` and `WatchCount`; movies carry `UserMovieId`. Reads MyShows directly and includes titles outside the Jellyfin library.
 - `GET /MyShows/v1/history/stats?topShows=N&userId=<guid>` — stats from the local SQLite journal (see [Pull-sync](#pull-sync)).
 - `GET /MyShows/v1/history/episodes/recent?limit=N&userId=<guid>` — latest watched episodes.
 - `GET /MyShows/v1/history/shows/recent?limit=N&userId=<guid>` — latest watched shows.

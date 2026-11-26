@@ -18,6 +18,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using MyShows.MyShowsApi;
+using MyShows.MyShowsApi.Api20;
 using MyShows.Journal;
 
 namespace MyShows.Api
@@ -126,6 +127,10 @@ namespace MyShows.Api
                     ImdbRating = PositiveOrNull(s.show.imdbRating),
                     KinopoiskRating = PositiveOrNull(s.show.kinopoiskRating),
                     MyShowsRating = PositiveOrNull(s.show.rating),
+                    ShowStatus = s.show.status,
+                    TotalSeasons = s.show.totalSeasons,
+                    WatchCount = s.watchCount,
+                    GenreAliases = JoinAliases(s.show.genres),
                     WatchedEpisodes = s.watchedEpisodes,
                     TotalEpisodes = s.totalEpisodes,
                 }).ToArray();
@@ -172,6 +177,13 @@ namespace MyShows.Api
 
         private static double? PositiveOrNull(double? value) => value > 0 ? value : null;
 
+        private static string JoinAliases(List<ProfileGenre> genres)
+        {
+            if (genres == null) return null;
+            var aliases = genres.Where(g => !string.IsNullOrEmpty(g.alias)).Select(g => g.alias).ToArray();
+            return aliases.Length == 0 ? null : string.Join(", ", aliases);
+        }
+
         private static DateTimeOffset? ParseWatchDate(string value)
             => DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var date) ? date : null;
 
@@ -191,6 +203,8 @@ namespace MyShows.Api
                 ImdbRating = PositiveOrNull(entry.imdbRating),
                 KinopoiskRating = PositiveOrNull(entry.kinopoiskRating),
                 MyShowsRating = PositiveOrNull(entry.rating),
+                UserMovieId = entry.userMovie?.id,
+                GenreAliases = JoinAliases(entry.genres),
                 WatchedAt = ParseWatchDate(entry.userMovie?.watchDate),
             };
         }
@@ -206,6 +220,11 @@ namespace MyShows.Api
             public double? ImdbRating { get; init; }
             public double? KinopoiskRating { get; init; }
             public double? MyShowsRating { get; init; }
+            public string ShowStatus { get; init; }
+            public int? TotalSeasons { get; init; }
+            public int? WatchCount { get; init; }
+            public int? UserMovieId { get; init; }
+            public string GenreAliases { get; init; }
             public double? Rating { get; set; }
             public bool? RatingAvailable { get; set; }
             public int? WatchedEpisodes { get; init; }
