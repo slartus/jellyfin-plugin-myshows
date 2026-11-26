@@ -169,11 +169,11 @@ namespace MyShows.Api
             var ratingAvailable = entry.TryGetPersonalRating(out var rating);
             return new ProfileTitle
             {
-                Id = entry.movie.id,
-                Title = entry.movie.title,
-                OriginalTitle = entry.movie.titleOriginal,
-                Year = entry.movie.year,
-                Status = entry.watchStatus ?? status,
+                Id = entry.id,
+                Title = entry.title,
+                OriginalTitle = entry.titleOriginal,
+                Year = entry.year,
+                Status = entry.userMovie?.watchStatus ?? status,
                 Rating = rating,
                 RatingAvailable = ratingAvailable,
             };

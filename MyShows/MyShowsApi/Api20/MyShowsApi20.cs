@@ -312,7 +312,7 @@ namespace MyShows.MyShowsApi.Api20
             CancellationToken cancellationToken)
             => GetProfilePages<ProfileMovieSummary>(user,
                 watched ? "profile.WatchedMovies" : "profile.UnwatchedMovies",
-                m => m.movie?.id ?? 0, (page, pageSize) => new { page, pageSize, search = new { } }, cancellationToken);
+                m => m.id, (page, pageSize) => new { page, pageSize, search = new { } }, cancellationToken);
 
         public Task<ProfileMovieSummary> GetProfileMovie(UserConfig user, int movieId,
             CancellationToken cancellationToken)

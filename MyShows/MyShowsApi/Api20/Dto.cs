@@ -139,14 +139,15 @@ namespace MyShows.MyShowsApi.Api20
 
     public class ProfileMovieSummary
     {
-        public ProfileMovieSummaryInner movie { get; set; }
-        public string watchStatus { get; set; }
-        public System.Text.Json.JsonElement rating { get; set; }
-        public System.Text.Json.JsonElement userRating { get; set; }
+        public int id { get; set; }
+        public string title { get; set; }
+        public string titleOriginal { get; set; }
+        public int? year { get; set; }
+        public ProfileMovieUser userMovie { get; set; }
 
         internal bool TryGetPersonalRating(out double? value)
         {
-            var field = userRating.ValueKind != System.Text.Json.JsonValueKind.Undefined ? userRating : rating;
+            var field = userMovie?.rating ?? default;
             if (field.ValueKind == System.Text.Json.JsonValueKind.Number && field.TryGetDouble(out var number))
             {
                 value = number > 0 ? number : null;
@@ -157,12 +158,12 @@ namespace MyShows.MyShowsApi.Api20
         }
     }
 
-    public class ProfileMovieSummaryInner
+    public class ProfileMovieUser
     {
         public int id { get; set; }
-        public string title { get; set; }
-        public string titleOriginal { get; set; }
-        public int? year { get; set; }
+        public string watchStatus { get; set; }
+        public System.Text.Json.JsonElement rating { get; set; }
+        public string watchDate { get; set; }
     }
 
     public class ProfileEpisodesArgs
