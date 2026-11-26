@@ -121,6 +121,10 @@ namespace MyShows.Api
                     Year = s.show.year,
                     Status = s.watchStatus,
                     Rating = s.rating > 0 ? s.rating : null,
+                    Genres = s.show.genres == null ? null : string.Join(", ", s.show.genres.Select(g => g.title)),
+                    ImdbRating = PositiveOrNull(s.show.imdbRating),
+                    KinopoiskRating = PositiveOrNull(s.show.kinopoiskRating),
+                    MyShowsRating = PositiveOrNull(s.show.rating),
                     WatchedEpisodes = s.watchedEpisodes,
                     TotalEpisodes = s.totalEpisodes,
                 }).ToArray();
@@ -164,6 +168,8 @@ namespace MyShows.Api
         private static bool IsProfileReadFailure(Exception error)
             => error is InvalidOperationException or JsonException or HttpRequestException or TaskCanceledException;
 
+        private static double? PositiveOrNull(double? value) => value > 0 ? value : null;
+
         private static ProfileTitle ProfileMovie(MyShows.MyShowsApi.Api20.ProfileMovieSummary entry, string status)
         {
             var ratingAvailable = entry.TryGetPersonalRating(out var rating);
@@ -176,6 +182,10 @@ namespace MyShows.Api
                 Status = entry.userMovie?.watchStatus ?? status,
                 Rating = rating,
                 RatingAvailable = ratingAvailable,
+                Genres = entry.genres == null ? null : string.Join(", ", entry.genres.Select(g => g.title)),
+                ImdbRating = PositiveOrNull(entry.imdbRating),
+                KinopoiskRating = PositiveOrNull(entry.kinopoiskRating),
+                MyShowsRating = PositiveOrNull(entry.rating),
             };
         }
 
@@ -186,6 +196,10 @@ namespace MyShows.Api
             public string OriginalTitle { get; init; }
             public int? Year { get; init; }
             public string Status { get; init; }
+            public string Genres { get; init; }
+            public double? ImdbRating { get; init; }
+            public double? KinopoiskRating { get; init; }
+            public double? MyShowsRating { get; init; }
             public double? Rating { get; set; }
             public bool? RatingAvailable { get; set; }
             public int? WatchedEpisodes { get; init; }

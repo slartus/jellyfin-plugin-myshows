@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace MyShows.MyShowsApi.Api20
 {
     public class JsonRpcCall
@@ -143,6 +145,10 @@ namespace MyShows.MyShowsApi.Api20
         public string title { get; set; }
         public string titleOriginal { get; set; }
         public int? year { get; set; }
+        public List<ProfileGenre> genres { get; set; }
+        public double? imdbRating { get; set; }
+        public double? kinopoiskRating { get; set; }
+        public double? rating { get; set; }
         public ProfileMovieUser userMovie { get; set; }
 
         internal bool TryGetPersonalRating(out double? value)
@@ -164,6 +170,13 @@ namespace MyShows.MyShowsApi.Api20
         public string watchStatus { get; set; }
         public System.Text.Json.JsonElement rating { get; set; }
         public string watchDate { get; set; }
+    }
+
+    public class ProfileGenre
+    {
+        public int id { get; set; }
+        public string title { get; set; }
+        public string alias { get; set; }
     }
 
     public class ProfileEpisodesArgs
@@ -197,5 +210,9 @@ namespace MyShows.MyShowsApi.Api20
         public string status { get; set; }
         public int? year { get; set; }
         public int? totalSeasons { get; set; }
+        public List<ProfileGenre> genres { get; set; }
+        public double? imdbRating { get; set; }
+        public double? kinopoiskRating { get; set; }
+        public double? rating { get; set; }
     }
 }
