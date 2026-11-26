@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Net.Mime;
 using System.Security.Claims;
 using System.Threading.Tasks;
+using System.Text.Json;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -29,6 +30,7 @@ namespace MyShows.Api
         private readonly ILibraryManager _libraryManager;
         private readonly IUserManager _userManager;
         private readonly MyShowsApiFactory _apiFactory;
+        private readonly ILogger _logger;
 
         public HistoryController(
             ILibraryManager libraryManager,
@@ -38,6 +40,7 @@ namespace MyShows.Api
         {
             _libraryManager = libraryManager;
             _userManager = userManager;
+            _logger = loggerFactory.CreateLogger<HistoryController>();
             _apiFactory = new MyShowsApiFactory(loggerFactory.CreateLogger("MyShows.AuthProbe"), httpClientFactory);
         }
 
@@ -83,6 +86,113 @@ namespace MyShows.Api
             public DateTime? ExpirationTime { get; set; }
             public bool? ProbeOk { get; set; }
             public string ProbeError { get; set; }
+        }
+
+        [HttpGet("history/profile")]
+        public async Task<ActionResult> GetProfile([FromQuery] string userId = null)
+        {
+            var targetUser = ResolveTargetUserId(userId);
+            if (targetUser == null) return Forbid();
+
+            var user = (Plugin.Instance.PluginConfiguration.Users ?? Array.Empty<MyShows.Configuration.UserConfig>())
+                .FirstOrDefault(u => NormaliseUserId(u?.Id) == targetUser);
+            if (string.IsNullOrEmpty(user?.AccessToken))
+                return NotFound(new { error = "MyShows account is not linked." });
+
+            try
+            {
+                var api = _apiFactory.GetApi(user.ApiVersion);
+                var cancellationToken = HttpContext.RequestAborted;
+                var watched = api.GetProfileMovies(user, watched: true, cancellationToken);
+                var planned = api.GetProfileMovies(user, watched: false, cancellationToken);
+                var profileShows = api.GetAllProfileShows(user, cancellationToken);
+                await Task.WhenAll(watched, planned, profileShows);
+
+                var movies = watched.Result.Select(m => ProfileMovie(m, "finished"))
+                    .Concat(planned.Result.Select(m => ProfileMovie(m, "later")))
+                    .DistinctBy(m => m.Id)
+                    .ToArray();
+
+                var shows = profileShows.Result.Select(s => new ProfileTitle
+                {
+                    Id = s.show.id,
+                    Title = s.show.title,
+                    OriginalTitle = s.show.titleOriginal,
+                    Year = s.show.year,
+                    Status = s.watchStatus,
+                    Rating = s.rating > 0 ? s.rating : null,
+                    WatchedEpisodes = s.watchedEpisodes,
+                    TotalEpisodes = s.totalEpisodes,
+                }).ToArray();
+
+                var parallel = new ParallelOptions { MaxDegreeOfParallelism = 6, CancellationToken = cancellationToken };
+                await Parallel.ForEachAsync(movies.Concat(shows), parallel, async (title, token) =>
+                {
+                    try
+                    {
+                        if (title.WatchedEpisodes is int watchedCount)
+                        {
+                            if (watchedCount == 0) return;
+                            title.EpisodePositionAvailable = false;
+                            var position = await api.GetProfilePosition(user, title.Id, token);
+                            title.LastSeason = position?.seasonNumber;
+                            title.LastEpisode = position?.episodeNumber;
+                            title.EpisodePositionAvailable = position != null;
+                        }
+                        else if (title.RatingAvailable == false)
+                        {
+                            var movie = await api.GetProfileMovie(user, title.Id, token);
+                            title.RatingAvailable = movie.TryGetPersonalRating(out var rating);
+                            title.Rating = rating;
+                        }
+                    }
+                    catch (Exception ex) when (!token.IsCancellationRequested && IsProfileReadFailure(ex))
+                    {
+                        _logger.LogWarning(ex, "Could not retrieve MyShows profile details for title {TitleId}", title.Id);
+                    }
+                });
+
+                return Ok(new { movies, shows });
+            }
+            catch (Exception ex) when (!HttpContext.RequestAborted.IsCancellationRequested && IsProfileReadFailure(ex))
+            {
+                _logger.LogWarning(ex, "Could not retrieve MyShows profile for {UserId}", targetUser);
+                return StatusCode(StatusCodes.Status502BadGateway, new { error = "MyShows profile is unavailable." });
+            }
+        }
+
+        private static bool IsProfileReadFailure(Exception error)
+            => error is InvalidOperationException or JsonException or HttpRequestException or TaskCanceledException;
+
+        private static ProfileTitle ProfileMovie(MyShows.MyShowsApi.Api20.ProfileMovieSummary entry, string status)
+        {
+            var ratingAvailable = entry.TryGetPersonalRating(out var rating);
+            return new ProfileTitle
+            {
+                Id = entry.movie.id,
+                Title = entry.movie.title,
+                OriginalTitle = entry.movie.titleOriginal,
+                Year = entry.movie.year,
+                Status = entry.watchStatus ?? status,
+                Rating = rating,
+                RatingAvailable = ratingAvailable,
+            };
+        }
+
+        private sealed class ProfileTitle
+        {
+            public int Id { get; init; }
+            public string Title { get; init; }
+            public string OriginalTitle { get; init; }
+            public int? Year { get; init; }
+            public string Status { get; init; }
+            public double? Rating { get; set; }
+            public bool? RatingAvailable { get; set; }
+            public int? WatchedEpisodes { get; init; }
+            public int? TotalEpisodes { get; init; }
+            public bool? EpisodePositionAvailable { get; set; }
+            public int? LastSeason { get; set; }
+            public int? LastEpisode { get; set; }
         }
 
         [HttpGet("history/stats")]

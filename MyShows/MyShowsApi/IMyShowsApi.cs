@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -21,6 +22,10 @@ namespace MyShows.MyShowsApi
         Task<int> ResolveMyShowsShowId(UserConfig user, Series series);
 
         Task<IReadOnlyList<ProfileShowSummary>> GetProfileShows(UserConfig user);
+        Task<IReadOnlyList<ProfileShowSummary>> GetAllProfileShows(UserConfig user, CancellationToken cancellationToken);
+        Task<EpisodeSummary> GetProfilePosition(UserConfig user, int showId, CancellationToken cancellationToken);
+        Task<ProfileMovieSummary> GetProfileMovie(UserConfig user, int movieId, CancellationToken cancellationToken);
+        Task<IReadOnlyList<ProfileMovieSummary>> GetProfileMovies(UserConfig user, bool watched, CancellationToken cancellationToken);
         Task<IReadOnlyList<ProfileEpisode>> GetEpisodesByShowId(UserConfig user, int showId);
         Task<ShowSummary> GetShowWithEpisodesById(UserConfig user, int showId);
         Task<int> GetMyShowsMovieId(UserConfig user, Movie movie);

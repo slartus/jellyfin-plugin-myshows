@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Extensions.Json;
 using MediaBrowser.Common.Net;
@@ -20,7 +21,7 @@ namespace MyShows.MyShowsApi.Api20
     {
         private readonly ILogger _logger;
         private readonly IHttpClientFactory _httpClientFactory;
-        private int _counter = 1;
+        private int _counter;
         private static readonly TimeSpan CACHED_SHOW_STORAGE_INTERVAL = TimeSpan.FromHours(24);
         private readonly ExpireableCache<string, ShowSummary> _showsCache = new();
         private readonly List<Guid> _lastWatchedShows = new();
@@ -303,6 +304,89 @@ namespace MyShows.MyShowsApi.Api20
             return shows ?? Array.Empty<ProfileShowSummary>();
         }
 
+        public Task<IReadOnlyList<ProfileShowSummary>> GetAllProfileShows(UserConfig user, CancellationToken cancellationToken)
+            => GetProfilePages<ProfileShowSummary>(user, "profile.Shows", s => s.show?.id ?? 0,
+                (page, pageSize) => new { page, pageSize }, cancellationToken);
+
+        public Task<IReadOnlyList<ProfileMovieSummary>> GetProfileMovies(UserConfig user, bool watched,
+            CancellationToken cancellationToken)
+            => GetProfilePages<ProfileMovieSummary>(user,
+                watched ? "profile.WatchedMovies" : "profile.UnwatchedMovies",
+                m => m.movie?.id ?? 0, (page, pageSize) => new { page, pageSize, search = new { } }, cancellationToken);
+
+        public Task<ProfileMovieSummary> GetProfileMovie(UserConfig user, int movieId,
+            CancellationToken cancellationToken)
+            => ReadProfileResult<ProfileMovieSummary>(user, "profile.Movie", new { movieId }, cancellationToken);
+
+        public async Task<EpisodeSummary> GetProfilePosition(UserConfig user, int showId, CancellationToken cancellationToken)
+        {
+            var episodes = await ReadProfileResult<ProfileEpisode[]>(user, "profile.Episodes",
+                new ProfileEpisodesArgs { showId = showId }, cancellationToken);
+            // The profile lists watched episodes. Some marks do not have a watch date.
+            var dates = episodes.GroupBy(e => e.id).ToDictionary(group => group.Key,
+                group => group.Max(e => DateTimeOffset.TryParse(e.watchDate, CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal, out var date) ? (DateTimeOffset?)date : null));
+            if (dates.Count == 0) return null;
+
+            var metadata = await ReadProfileResult<ShowSummary>(user, "shows.GetById",
+                new ShowsGetByIdArgs { showId = showId, withEpisodes = true }, cancellationToken);
+            return metadata.episodes?.Where(e => dates.ContainsKey(e.id) && e.episodeNumber > 0)
+                .OrderByDescending(e => dates[e.id])
+                .ThenByDescending(e => e.seasonNumber)
+                .ThenByDescending(e => e.episodeNumber)
+                .FirstOrDefault();
+        }
+
+        private async Task<T> ReadProfileResult<T>(UserConfig user, string method, object args,
+            CancellationToken cancellationToken) where T : class
+        {
+            var (result, error) = await Call<T>(user, method, args, cancellationToken);
+            return error == null && result != null
+                ? result
+                : throw new InvalidOperationException(error ?? $"Missing result for {method}");
+        }
+
+        private async Task<IReadOnlyList<T>> GetProfilePages<T>(UserConfig user, string method,
+            Func<T, int> getId, Func<int, int, object> getParams, CancellationToken cancellationToken) where T : class
+        {
+            const int pageSize = 100;
+            var results = new List<T>();
+            var seen = new HashSet<int>();
+            for (var page = 0; ; page++)
+            {
+                var (result, error) = await Call<JsonElement>(user, method, getParams(page, pageSize), cancellationToken);
+                if (error != null)
+                    throw new InvalidOperationException(error);
+
+                var items = result;
+                if (result.ValueKind == JsonValueKind.Object)
+                    result.TryGetProperty("items", out items);
+
+                if (items.ValueKind != JsonValueKind.Array)
+                    throw new JsonException($"Unexpected result for {method}");
+
+                var count = 0;
+                foreach (var item in items.EnumerateArray())
+                {
+                    var entry = item.Deserialize<T>(JsonDefaults.Options);
+                    var id = entry == null ? 0 : getId(entry);
+                    if (id <= 0)
+                        throw new JsonException($"Missing title ID in {method}");
+
+                    if (seen.Add(id))
+                    {
+                        results.Add(entry);
+                        count++;
+                    }
+                }
+
+                if (items.GetArrayLength() == 0)
+                    return results;
+                if (count == 0)
+                    throw new InvalidOperationException($"Pagination did not advance for {method}");
+            }
+        }
+
         public async Task<IReadOnlyList<ProfileEpisode>> GetEpisodesByShowId(UserConfig user, int showId)
         {
             var episodes = await Execute<ProfileEpisode[]>(user, "profile.Episodes", new ProfileEpisodesArgs
@@ -361,10 +445,12 @@ namespace MyShows.MyShowsApi.Api20
             }
         }
 
-        private async Task<(T result, string error)> Call<T>(UserConfig user, string method, object args)
+        private async Task<(T result, string error)> Call<T>(UserConfig user, string method, object args,
+            CancellationToken cancellationToken = default)
         {
             for (var attempt = 0; ; attempt++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var isTokenValid = await user.EnsureAccessTokenValid(GetHttpClient(), _logger);
                 if (!isTokenValid)
                 {
@@ -373,7 +459,7 @@ namespace MyShows.MyShowsApi.Api20
                 }
 
                 var usedAccessToken = user.AccessToken;
-                var (rpc, status) = await Send<T>(usedAccessToken, method, args);
+                var (rpc, status) = await Send<T>(usedAccessToken, method, args, cancellationToken);
                 var authRejected = status == 401 || status == 403 || rpc?.error?.code == 401 || rpc?.error?.code == 403;
                 if (authRejected && attempt == 0 && await user.InvalidateAccessToken(usedAccessToken))
                 {
@@ -397,23 +483,24 @@ namespace MyShows.MyShowsApi.Api20
             }
         }
 
-        private async Task<(JsonRpcResult<T> rpc, int status)> Send<T>(string accessToken, string method, object args)
+        private async Task<(JsonRpcResult<T> rpc, int status)> Send<T>(string accessToken, string method, object args,
+            CancellationToken cancellationToken)
         {
             var call = new JsonRpcCall
             {
                 jsonrpc = "2.0",
-                id = _counter++,
+                id = Interlocked.Increment(ref _counter),
                 method = method,
                 @params = args,
             };
-            var httpClient = GetHttpClient();
-            var request = new HttpRequestMessage(HttpMethod.Post, ApiConstants.RpcUri)
+            using var httpClient = GetHttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, ApiConstants.RpcUri)
             {
                 Content = new StringContent(JsonSerializer.Serialize(call, JsonDefaults.Options), Encoding.UTF8, "application/json"),
             };
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             request.Headers.TryAddWithoutValidation("Authorization2", "Bearer " + accessToken);
-            var response = await httpClient.SendAsync(request);
+            using var response = await httpClient.SendAsync(request, cancellationToken);
             var status = (int)response.StatusCode;
 
             try

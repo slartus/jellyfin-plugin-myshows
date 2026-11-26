@@ -137,6 +137,34 @@ namespace MyShows.MyShowsApi.Api20
         public string watchStatus { get; set; }
     }
 
+    public class ProfileMovieSummary
+    {
+        public ProfileMovieSummaryInner movie { get; set; }
+        public string watchStatus { get; set; }
+        public System.Text.Json.JsonElement rating { get; set; }
+        public System.Text.Json.JsonElement userRating { get; set; }
+
+        internal bool TryGetPersonalRating(out double? value)
+        {
+            var field = userRating.ValueKind != System.Text.Json.JsonValueKind.Undefined ? userRating : rating;
+            if (field.ValueKind == System.Text.Json.JsonValueKind.Number && field.TryGetDouble(out var number))
+            {
+                value = number > 0 ? number : null;
+                return true;
+            }
+            value = null;
+            return field.ValueKind == System.Text.Json.JsonValueKind.Null;
+        }
+    }
+
+    public class ProfileMovieSummaryInner
+    {
+        public int id { get; set; }
+        public string title { get; set; }
+        public string titleOriginal { get; set; }
+        public int? year { get; set; }
+    }
+
     public class ProfileEpisodesArgs
     {
         public int showId { get; set; }
