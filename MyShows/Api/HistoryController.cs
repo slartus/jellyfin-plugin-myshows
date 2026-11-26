@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Mime;
@@ -141,6 +142,7 @@ namespace MyShows.Api
                             var position = await api.GetProfilePosition(user, title.Id, token);
                             title.LastSeason = position?.seasonNumber;
                             title.LastEpisode = position?.episodeNumber;
+                            title.WatchedAt = position?.watchedAt;
                             title.EpisodePositionAvailable = position != null;
                         }
                         else if (title.RatingAvailable == false)
@@ -170,6 +172,9 @@ namespace MyShows.Api
 
         private static double? PositiveOrNull(double? value) => value > 0 ? value : null;
 
+        private static DateTimeOffset? ParseWatchDate(string value)
+            => DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var date) ? date : null;
+
         private static ProfileTitle ProfileMovie(MyShows.MyShowsApi.Api20.ProfileMovieSummary entry, string status)
         {
             var ratingAvailable = entry.TryGetPersonalRating(out var rating);
@@ -186,6 +191,7 @@ namespace MyShows.Api
                 ImdbRating = PositiveOrNull(entry.imdbRating),
                 KinopoiskRating = PositiveOrNull(entry.kinopoiskRating),
                 MyShowsRating = PositiveOrNull(entry.rating),
+                WatchedAt = ParseWatchDate(entry.userMovie?.watchDate),
             };
         }
 
@@ -207,6 +213,7 @@ namespace MyShows.Api
             public bool? EpisodePositionAvailable { get; set; }
             public int? LastSeason { get; set; }
             public int? LastEpisode { get; set; }
+            public DateTimeOffset? WatchedAt { get; set; }
         }
 
         [HttpGet("history/stats")]

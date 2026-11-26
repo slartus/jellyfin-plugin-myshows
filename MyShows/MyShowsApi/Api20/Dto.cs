@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace MyShows.MyShowsApi.Api20
@@ -214,5 +215,12 @@ namespace MyShows.MyShowsApi.Api20
         public double? imdbRating { get; set; }
         public double? kinopoiskRating { get; set; }
         public double? rating { get; set; }
+    }
+
+    public class EpisodePosition
+    {
+        public int seasonNumber { get; set; }
+        public int episodeNumber { get; set; }
+        public DateTimeOffset? watchedAt { get; set; }
     }
 }

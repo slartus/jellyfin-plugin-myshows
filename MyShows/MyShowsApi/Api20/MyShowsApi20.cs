@@ -322,7 +322,7 @@ namespace MyShows.MyShowsApi.Api20
             CancellationToken cancellationToken)
             => ReadProfileResult<ProfileMovieSummary>(user, "profile.Movie", new { movieId }, cancellationToken);
 
-        public async Task<EpisodeSummary> GetProfilePosition(UserConfig user, int showId, CancellationToken cancellationToken)
+        public async Task<EpisodePosition> GetProfilePosition(UserConfig user, int showId, CancellationToken cancellationToken)
         {
             var episodes = await ReadProfileResult<ProfileEpisode[]>(user, "profile.Episodes",
                 new ProfileEpisodesArgs { showId = showId }, cancellationToken);
@@ -334,11 +334,18 @@ namespace MyShows.MyShowsApi.Api20
 
             var metadata = await ReadProfileResult<ShowSummary>(user, "shows.GetById",
                 new ShowsGetByIdArgs { showId = showId, withEpisodes = true }, cancellationToken);
-            return metadata.episodes?.Where(e => dates.ContainsKey(e.id) && e.episodeNumber > 0)
+            var position = metadata.episodes?.Where(e => dates.ContainsKey(e.id) && e.episodeNumber > 0)
                 .OrderByDescending(e => dates[e.id])
                 .ThenByDescending(e => e.seasonNumber)
                 .ThenByDescending(e => e.episodeNumber)
                 .FirstOrDefault();
+            if (position == null) return null;
+            return new EpisodePosition
+            {
+                seasonNumber = position.seasonNumber,
+                episodeNumber = position.episodeNumber,
+                watchedAt = dates[position.id],
+            };
         }
 
         private async Task<T> ReadProfileResult<T>(UserConfig user, string method, object args,

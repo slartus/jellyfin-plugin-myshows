@@ -23,7 +23,7 @@ namespace MyShows.MyShowsApi
 
         Task<IReadOnlyList<ProfileShowSummary>> GetProfileShows(UserConfig user);
         Task<IReadOnlyList<ProfileShowSummary>> GetAllProfileShows(UserConfig user, CancellationToken cancellationToken);
-        Task<EpisodeSummary> GetProfilePosition(UserConfig user, int showId, CancellationToken cancellationToken);
+        Task<EpisodePosition> GetProfilePosition(UserConfig user, int showId, CancellationToken cancellationToken);
         Task<ProfileMovieSummary> GetProfileMovie(UserConfig user, int movieId, CancellationToken cancellationToken);
         Task<IReadOnlyList<ProfileMovieSummary>> GetProfileMovies(UserConfig user, bool watched, CancellationToken cancellationToken);
         Task<IReadOnlyList<ProfileEpisode>> GetEpisodesByShowId(UserConfig user, int showId);
