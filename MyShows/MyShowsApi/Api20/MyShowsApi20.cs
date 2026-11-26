@@ -304,9 +304,13 @@ namespace MyShows.MyShowsApi.Api20
             return shows ?? Array.Empty<ProfileShowSummary>();
         }
 
-        public Task<IReadOnlyList<ProfileShowSummary>> GetAllProfileShows(UserConfig user, CancellationToken cancellationToken)
-            => GetProfilePages<ProfileShowSummary>(user, "profile.Shows", s => s.show?.id ?? 0,
-                (page, pageSize) => new { page, pageSize }, cancellationToken);
+        public async Task<IReadOnlyList<ProfileShowSummary>> GetAllProfileShows(UserConfig user, CancellationToken cancellationToken)
+        {
+            var (result, error) = await Call<ProfileShowSummary[]>(user, "profile.Shows", new { }, cancellationToken);
+            return error == null && result != null
+                ? result
+                : throw new InvalidOperationException(error ?? "Missing result for profile.Shows");
+        }
 
         public Task<IReadOnlyList<ProfileMovieSummary>> GetProfileMovies(UserConfig user, bool watched,
             CancellationToken cancellationToken)
