@@ -371,7 +371,10 @@ namespace MyShows.MyShowsApi.Api20
                     var entry = item.Deserialize<T>(JsonDefaults.Options);
                     var id = entry == null ? 0 : getId(entry);
                     if (id <= 0)
-                        throw new JsonException($"Missing title ID in {method}");
+                    {
+                        _logger.LogWarning("MyShows: skipping {0} entry without title ID: {1}", method, item.GetRawText());
+                        continue;
+                    }
 
                     if (seen.Add(id))
                     {
